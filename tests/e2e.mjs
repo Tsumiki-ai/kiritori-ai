@@ -248,6 +248,11 @@ try {
   check('C 範囲は全体', (await text('regionInfo')) === '範囲：映像の全体（1600 × 900 px）', await text('regionInfo'));
   const gdm = await ev(`({ keys: Object.keys(window.__gdmOpts), audio: window.__gdmOpts.audio, ctrl: !!window.__gdmOpts.controller, video: window.__gdmOpts.video })`);
   check('C 共有の指定（タブ優先・解像度の上限 3840×2160・15fps）', gdm.audio === false && gdm.ctrl && gdm.video && gdm.video.displaySurface === 'browser' && gdm.video.width.max === 3840 && gdm.video.height.max === 2160 && gdm.video.frameRate.max === 15, gdm);
+  check('C 上のボタン 3 つは幅いっぱいに等分され、映像と左右の端がそろう', await ev(`(() => {
+    const r = (id) => document.getElementById(id).getBoundingClientRect();
+    const s = r('stage'), a = r('shareBtn'), b = r('stopBtn'), c = r('zoomBtn'), send = r('sendBtn');
+    return Math.abs(a.left - s.left) < 1.5 && Math.abs(c.right - s.right) < 1.5 && Math.abs(a.width - b.width) < 1.5 && Math.abs(b.width - c.width) < 1.5 && a.top === b.top && b.top === c.top && Math.abs(send.right - s.right) < 1.5;
+  })()`), await ev(`['shareBtn', 'stopBtn', 'zoomBtn', 'stage'].map((id) => { const b = document.getElementById(id).getBoundingClientRect(); return id + ':' + Math.round(b.left) + '-' + Math.round(b.right); })`));
   check('C プレビューは縦横比どおり', await ev(`(() => { const b = document.getElementById('stage').getBoundingClientRect(); return Math.abs(b.width / b.height - 1600 / 900) < 0.02 && b.width <= 402; })()`));
 
   // ===== D. ドラッグで範囲を決める =====
