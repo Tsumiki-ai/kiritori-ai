@@ -1,0 +1,1844 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<!-- 通信先を 2 つの AI の API だけに絞る。外部のスクリプト・画像・フォントは一切読み込まない。 -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; media-src blob: mediastream:; connect-src https://api.anthropic.com https://generativelanguage.googleapis.com; base-uri 'none'; form-action 'none'">
+<title>きりとりAI</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%230b7566' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 8V3h5M16 3h5v5M21 16v5h-5M8 21H3v-5'/%3E%3Ccircle cx='12' cy='12' r='2.4' fill='%230b7566' stroke='none'/%3E%3C/svg%3E">
+<style>
+/* レイアウト: 左に細い「共有と範囲」の列、右に広い「回答と履歴」の列。狭い画面では 1 列。 */
+:root {
+  color-scheme: light;
+  --bg: #f2f5f4;
+  --panel: #ffffff;
+  --panel-2: #e9eeec;
+  --line: #d2dad7;
+  --fg: #16201d;
+  --muted: #5a6966;
+  --accent: #0b7566;
+  --accent-fg: #ffffff;
+  --accent-soft: #d6eee8;
+  --danger: #b3261e;
+  --danger-soft: #fbe4e1;
+  --warn: #7a5200;
+  --warn-soft: #fbefd0;
+  --sel: #ffb300;
+  --shadow: 0 1px 2px rgba(16, 32, 28, .08), 0 4px 16px rgba(16, 32, 28, .06);
+  --radius: 10px;
+  --font: "Segoe UI", "Yu Gothic UI", "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
+  --mono: "Cascadia Code", "Cascadia Mono", Consolas, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --bg: #0f1413;
+    --panel: #171e1c;
+    --panel-2: #202927;
+    --line: #303c39;
+    --fg: #e4ecea;
+    --muted: #92a29e;
+    --accent: #45c8b1;
+    --accent-fg: #05201b;
+    --accent-soft: #16372f;
+    --danger: #ff8f85;
+    --danger-soft: #3b1b18;
+    --warn: #ffcf70;
+    --warn-soft: #3a2f12;
+    --sel: #ffc233;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 6px 20px rgba(0, 0, 0, .35);
+  }
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { min-height: 100%; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.65 var(--font); }
+button, select, input, textarea { font: inherit; color: inherit; }
+h1, h2 { margin: 0; }
+p { margin: 0; }
+
+.bar {
+  position: sticky; top: 0; z-index: 5;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px;
+  padding: 10px 20px; background: var(--panel); border-bottom: 1px solid var(--line);
+}
+.bar h1 { font-size: 16px; letter-spacing: .03em; display: flex; align-items: center; gap: 8px; }
+.logo { color: var(--accent); flex: none; }
+.spacer { flex: 1; }
+.model-pick { color: var(--muted); font-size: 12.5px; }
+#modelSelect { width: auto; max-width: min(300px, 52vw); }
+
+.wrap { max-width: 1500px; margin: 0 auto; padding: 20px; display: flex; flex-direction: column; gap: 16px; }
+.grid { display: grid; grid-template-columns: minmax(320px, 400px) minmax(0, 1fr); gap: 20px; align-items: start; }
+body.wide .grid { grid-template-columns: minmax(0, 1fr); }
+.capture {
+  position: sticky; top: 68px; display: flex; flex-direction: column; gap: 12px;
+  max-height: calc(100vh - 84px); overflow: auto; padding: 2px;
+}
+body.wide .capture { position: static; max-height: none; }
+.answers { min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+@media (max-width: 860px) {
+  .wrap { padding: 14px; }
+  .grid { grid-template-columns: minmax(0, 1fr); }
+  .capture { position: static; max-height: none; }
+}
+
+.row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.btn {
+  appearance: none; border: 1px solid var(--line); background: var(--panel); color: var(--fg);
+  border-radius: 8px; padding: 7px 12px; cursor: pointer; line-height: 1.3;
+}
+.btn:hover { border-color: var(--muted); }
+.btn.primary { background: var(--accent); color: var(--accent-fg); border-color: transparent; font-weight: 600; }
+.btn.primary:hover { filter: brightness(1.08); }
+.btn.danger { color: var(--danger); }
+.btn.armed { background: var(--danger-soft); border-color: var(--danger); color: var(--danger); }
+.btn.small { padding: 4px 9px; font-size: 12.5px; }
+.btn.big { width: 100%; padding: 12px 16px; font-size: 15px; }
+.btn.stop { background: var(--panel); color: var(--danger); border-color: var(--danger); font-weight: 600; }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+.btn:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible, summary:focus-visible, a:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px;
+}
+input[type="text"], input[type="password"], textarea, select {
+  width: 100%; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px;
+}
+textarea { resize: vertical; min-height: 3.4em; line-height: 1.55; }
+label.lbl { display: block; font-size: 12.5px; color: var(--muted); margin-bottom: 4px; }
+
+.stage {
+  position: relative; width: 100%; aspect-ratio: 16 / 9; margin-inline: auto;
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--radius);
+  overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none;
+}
+.stage video { position: absolute; inset: 0; width: 100%; height: 100%; display: block; background: #000; }
+.stage.empty video, .stage.empty .sel-layer { display: none; }
+.stage-hint { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; padding: 16px; color: var(--muted); }
+.stage:not(.empty) .stage-hint { display: none; }
+.sel-layer { position: absolute; inset: 0; cursor: crosshair; }
+/* 範囲の外を暗くする。映像の上に重ねる色なので、テーマに関係なく固定の黒を使う。 */
+.sel { position: absolute; border: 2px solid var(--sel); box-shadow: 0 0 0 1px rgba(0, 0, 0, .7), 0 0 0 200vmax rgba(0, 0, 0, .5); cursor: move; }
+.sel .h { position: absolute; width: 12px; height: 12px; background: var(--sel); border: 1px solid rgba(0, 0, 0, .75); border-radius: 2px; }
+.h.nw { left: -7px; top: -7px; cursor: nwse-resize; }
+.h.n { left: calc(50% - 6px); top: -7px; cursor: ns-resize; }
+.h.ne { right: -7px; top: -7px; cursor: nesw-resize; }
+.h.e { right: -7px; top: calc(50% - 6px); cursor: ew-resize; }
+.h.se { right: -7px; bottom: -7px; cursor: nwse-resize; }
+.h.s { left: calc(50% - 6px); bottom: -7px; cursor: ns-resize; }
+.h.sw { left: -7px; bottom: -7px; cursor: nesw-resize; }
+.h.w { left: -7px; top: calc(50% - 6px); cursor: ew-resize; }
+
+.region-row { display: flex; align-items: center; gap: 8px; min-height: 28px; }
+.region-row .info { flex: 1; min-width: 0; color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.preset-row { display: flex; gap: 8px; align-items: center; }
+.preset-row select { flex: 1; min-width: 0; }
+.preset-row .btn { flex: none; white-space: nowrap; }
+.preset-form { display: flex; gap: 8px; align-items: center; }
+.preset-form input { flex: 1; min-width: 0; }
+.hint { color: var(--muted); font-size: 12.5px; }
+.flash { font-size: 12.5px; color: var(--muted); min-height: 1.6em; }
+.flash.error { color: var(--danger); }
+
+.note { border-radius: 8px; padding: 8px 12px; font-size: 13px; white-space: pre-line; overflow-wrap: anywhere; }
+.note + .note { margin-top: 6px; }
+.note.info { background: var(--accent-soft); color: var(--fg); }
+.note.warn { background: var(--warn-soft); color: var(--warn); }
+.note.error { background: var(--danger-soft); color: var(--danger); }
+.note .btn { margin-left: 8px; }
+
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
+.current { padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; }
+.meta { display: flex; align-items: center; gap: 12px; }
+.meta .who { min-width: 0; flex: 1; }
+.meta .title { font-weight: 600; overflow-wrap: anywhere; }
+.meta .status { color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.thumb { width: 76px; height: 57px; flex: none; object-fit: cover; border-radius: 6px; border: 1px solid var(--line); background: var(--panel-2); cursor: zoom-in; }
+.thumb.sm { width: 56px; height: 42px; cursor: inherit; }
+.thinking { border: 1px dashed var(--line); border-radius: 8px; padding: 6px 12px; color: var(--muted); font-size: 13px; }
+.thinking summary { cursor: pointer; }
+.thinking .md { max-height: 220px; overflow: auto; }
+
+.md { overflow-wrap: anywhere; }
+.md > :first-child { margin-top: 0; }
+.md > :last-child { margin-bottom: 0; }
+.md p { margin: .65em 0; }
+.md h1, .md h2, .md h3, .md h4, .md h5, .md h6 { margin: 1.1em 0 .45em; line-height: 1.4; }
+.md h1 { font-size: 1.3em; } .md h2 { font-size: 1.2em; } .md h3 { font-size: 1.1em; }
+.md h4, .md h5, .md h6 { font-size: 1em; }
+.md ul, .md ol { margin: .5em 0; padding-left: 1.6em; }
+.md li { margin: .15em 0; }
+.md code { font-family: var(--mono); font-size: .92em; background: var(--panel-2); padding: .1em .35em; border-radius: 4px; }
+.md pre { background: var(--panel-2); padding: 10px 12px; border-radius: 8px; overflow-x: auto; margin: .7em 0; }
+.md pre code { background: none; padding: 0; }
+.md blockquote { margin: .7em 0; padding: .1em 1em; border-left: 3px solid var(--line); color: var(--muted); }
+.md hr { border: 0; border-top: 1px solid var(--line); margin: 1em 0; }
+.md a { color: var(--accent); }
+.md .table-wrap { overflow-x: auto; margin: .7em 0; }
+.md table { border-collapse: collapse; }
+.md th, .md td { border: 1px solid var(--line); padding: 4px 10px; vertical-align: top; }
+.md th { background: var(--panel-2); font-weight: 600; }
+
+.guide { padding: 18px 20px; }
+.guide h2 { font-size: 14px; margin-bottom: 8px; }
+.guide ol { margin: 0; padding-left: 1.5em; display: flex; flex-direction: column; gap: 6px; }
+.guide li strong { margin-right: .5em; }
+
+.history-head { display: flex; align-items: baseline; gap: 10px; margin-top: 6px; }
+.history-head h2 { font-size: 14px; }
+.history-head .count { color: var(--muted); font-size: 12.5px; }
+.history-list { display: flex; flex-direction: column; gap: 8px; }
+.hist > summary { list-style: none; display: flex; align-items: center; gap: 12px; padding: 8px 12px; cursor: pointer; border-radius: var(--radius); }
+.hist > summary::-webkit-details-marker { display: none; }
+.hist .snippet { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hist .when { flex: none; color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; text-align: right; }
+.hist .body { padding: 12px 16px 16px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 10px; }
+.hist .small-meta { color: var(--muted); font-size: 12.5px; overflow-wrap: anywhere; }
+.hist .prompt-used { color: var(--muted); font-size: 12.5px; }
+.hist .prompt-used pre { white-space: pre-wrap; overflow-wrap: anywhere; font-family: inherit; margin: 6px 0 0; }
+
+dialog { border: 1px solid var(--line); border-radius: 14px; background: var(--panel); color: var(--fg); padding: 0; box-shadow: var(--shadow); }
+dialog::backdrop { background: rgba(0, 0, 0, .5); }
+#settingsDialog { width: min(680px, calc(100vw - 32px)); max-height: calc(100vh - 48px); }
+.dlg-head { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; justify-content: space-between; padding: 14px 20px; background: var(--panel); border-bottom: 1px solid var(--line); }
+.dlg-head h2 { font-size: 16px; }
+.dlg-body { padding: 16px 20px 22px; display: flex; flex-direction: column; gap: 20px; }
+.field { display: flex; flex-direction: column; gap: 6px; }
+.field > label, .field .name { font-weight: 600; }
+.field .help { color: var(--muted); font-size: 12.5px; }
+.key-row { display: flex; gap: 8px; align-items: center; }
+.key-row input, .key-row select { flex: 1; min-width: 0; }
+.key-row .btn { flex: none; white-space: nowrap; }
+.check { display: flex; align-items: center; gap: 8px; font-weight: 600; cursor: pointer; }
+.check input { width: 16px; height: 16px; accent-color: var(--accent); }
+#imageDialog { max-width: calc(100vw - 32px); max-height: calc(100vh - 32px); }
+#imageDialog .img-body { padding: 12px; display: flex; flex-direction: column; gap: 10px; align-items: flex-end; }
+#imageDialog img { display: block; max-width: calc(100vw - 80px); max-height: calc(100vh - 130px); border: 1px solid var(--line); }
+@media (prefers-reduced-motion: no-preference) {
+  .btn { transition: border-color .12s, filter .12s; }
+}
+</style>
+</head>
+<body>
+
+<header class="bar">
+  <h1>
+    <svg class="logo" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8V3h5M16 3h5v5M21 16v5h-5M8 21H3v-5"/><circle cx="12" cy="12" r="2.4" fill="currentColor" stroke="none"/></svg>
+    きりとりAI
+  </h1>
+  <span class="spacer"></span>
+  <label class="model-pick" for="modelSelect">モデル</label>
+  <select id="modelSelect"></select>
+  <button id="openSettings" class="btn" type="button">設定</button>
+</header>
+
+<div class="wrap">
+  <div id="banner" class="note info" role="status" hidden></div>
+
+  <main class="grid">
+    <section class="capture" aria-label="共有と範囲">
+      <div class="row">
+        <button id="shareBtn" class="btn primary" type="button">共有するタブを選ぶ</button>
+        <button id="stopBtn" class="btn" type="button" hidden>共有を止める</button>
+        <button id="zoomBtn" class="btn" type="button" aria-pressed="false" hidden>大きく表示</button>
+      </div>
+
+      <div id="stage" class="stage empty">
+        <video id="video" muted playsinline></video>
+        <div id="selLayer" class="sel-layer">
+          <div id="sel" class="sel" hidden>
+            <span class="h nw" data-h="nw"></span><span class="h n" data-h="n"></span><span class="h ne" data-h="ne"></span>
+            <span class="h e" data-h="e"></span><span class="h se" data-h="se"></span><span class="h s" data-h="s"></span>
+            <span class="h sw" data-h="sw"></span><span class="h w" data-h="w"></span>
+          </div>
+        </div>
+        <p class="stage-hint">「共有するタブを選ぶ」を押すと、選んだタブやウィンドウの映像がここに映ります。</p>
+      </div>
+
+      <div id="regionRow" class="region-row" hidden>
+        <span id="regionInfo" class="info"></span>
+        <button id="fullBtn" class="btn small" type="button" hidden>全体に戻す</button>
+      </div>
+
+      <div class="preset-row">
+        <select id="presetSelect" aria-label="保存した範囲"></select>
+        <button id="presetSaveBtn" class="btn small" type="button">今の範囲を保存</button>
+        <button id="presetDeleteBtn" class="btn small danger" type="button" hidden>削除</button>
+      </div>
+      <div id="presetForm" class="preset-form" hidden>
+        <input id="presetName" type="text" maxlength="30" placeholder="名前（例：左ページ）" aria-label="保存する範囲の名前">
+        <button id="presetOk" class="btn small primary" type="button">保存</button>
+        <button id="presetCancel" class="btn small" type="button">やめる</button>
+      </div>
+
+      <div>
+        <label class="lbl" for="userText">追加の指示（任意）</label>
+        <textarea id="userText" rows="2" placeholder="例：この問題の解き方を教えて"></textarea>
+      </div>
+
+      <button id="sendBtn" class="btn primary big" type="button" disabled>この範囲を AI に送る</button>
+      <p id="flash" class="flash" role="status" aria-live="polite">Ctrl + Enter でも送れます。</p>
+    </section>
+
+    <section class="answers" aria-label="回答と履歴">
+      <article id="current" class="card current" hidden>
+        <div class="meta">
+          <img id="curThumb" class="thumb" alt="送った画像（クリックで拡大）">
+          <div class="who">
+            <div id="curTitle" class="title"></div>
+            <div id="curStatus" class="status" role="status"></div>
+          </div>
+          <button id="curCopy" class="btn small" type="button" hidden>コピー</button>
+        </div>
+        <details id="curThinking" class="thinking" hidden>
+          <summary>思考の要約</summary>
+          <div id="curThinkingBody" class="md"></div>
+        </details>
+        <div id="curNotes"></div>
+        <div id="curAnswer" class="md"></div>
+      </article>
+
+      <div id="guide" class="card guide">
+        <h2>使い方</h2>
+        <ol>
+          <li><strong>タブを選ぶ</strong>「共有するタブを選ぶ」を押して、AI に見せたいタブかウィンドウを選びます。</li>
+          <li><strong>範囲を決める</strong>映った映像の上をドラッグします。決めた範囲は次に開いたときも残ります。</li>
+          <li><strong>ボタンを押す</strong>押した瞬間の画面をその範囲で切り抜いて AI に送ります。返事はここに出ます。</li>
+        </ol>
+      </div>
+
+      <div class="history-head">
+        <h2>履歴</h2>
+        <span id="historyCount" class="count"></span>
+        <span class="spacer"></span>
+        <button id="clearHistoryBtn" class="btn small danger" type="button" hidden>すべて消す</button>
+      </div>
+      <div id="historyList" class="history-list"></div>
+      <div><button id="moreHistoryBtn" class="btn" type="button" hidden>さらに表示</button></div>
+    </section>
+  </main>
+</div>
+
+<dialog id="settingsDialog" aria-labelledby="settingsTitle">
+  <div class="dlg-head">
+    <h2 id="settingsTitle">設定</h2>
+    <button id="closeSettings" class="btn small" type="button">閉じる</button>
+  </div>
+  <div class="dlg-body">
+    <div id="settingsMsg" class="note warn" hidden></div>
+
+    <div class="field">
+      <label for="keyClaude">Claude（Anthropic）の API キー</label>
+      <div class="key-row">
+        <input id="keyClaude" type="password" autocomplete="off" spellcheck="false" placeholder="sk-ant-…">
+        <button class="btn small" type="button" data-reveal="keyClaude">表示</button>
+      </div>
+      <label for="keyGemini">Gemini の API キー</label>
+      <div class="key-row">
+        <input id="keyGemini" type="password" autocomplete="off" spellcheck="false" placeholder="AIza…">
+        <button class="btn small" type="button" data-reveal="keyGemini">表示</button>
+      </div>
+      <p class="help">使うほうだけ入れれば動きます。キーはこのブラウザの中にだけ保存され、その AI の API 以外には送られません。</p>
+    </div>
+
+    <div class="field">
+      <span class="name">モデルの一覧</span>
+      <div class="key-row">
+        <span id="modelsStatus" class="help" style="flex:1"></span>
+        <button id="refreshModels" class="btn small" type="button">一覧を更新</button>
+      </div>
+      <p class="help">使うモデルは、画面上部の「モデル」から切り替えます。</p>
+    </div>
+
+    <div class="field">
+      <label id="effortLabel" for="effortSelect">思考の深さ</label>
+      <select id="effortSelect"></select>
+      <p class="help">深くするほど難しい問題に強くなりますが、時間と料金が増えます。モデルが対応していない深さを選ぶと、送信時に API がエラーを返します。</p>
+    </div>
+
+    <div class="field">
+      <label for="systemPrompt">システムプロンプト</label>
+      <textarea id="systemPrompt" rows="9" spellcheck="false"></textarea>
+      <div class="row"><button id="resetPrompt" class="btn small" type="button">初期の文面に戻す</button></div>
+    </div>
+
+    <div class="field">
+      <label class="check"><input id="keepHistory" type="checkbox"> 履歴を残す</label>
+      <p class="help">送った画像と回答を、このブラウザの中に保存します。</p>
+    </div>
+  </div>
+</dialog>
+
+<dialog id="imageDialog" aria-label="送った画像">
+  <div class="img-body">
+    <img id="bigImage" alt="送った画像">
+    <button id="closeImage" class="btn small" type="button">閉じる</button>
+  </div>
+</dialog>
+
+<script>
+/* ============================================================
+ * きりとりAI — core: 画面に触らない純粋なロジック
+ * （Markdown 変換・SSE の読み取り・各 API のリクエスト組み立てと応答の集計）
+ * ============================================================ */
+(function (root) {
+  'use strict';
+
+  var ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+  function escapeHtml(s) { return String(s).replace(/[&<>"']/g, function (c) { return ESC[c]; }); }
+  function clamp(v, lo, hi) { return Math.min(hi, Math.max(lo, v)); }
+
+  /* ---------- Markdown → HTML ----------
+   * AI の出力は必ず先にエスケープし、こちらで決めたタグだけを組み立てる。
+   * そのため、出力に HTML やスクリプトが混ざっても文字として表示されるだけになる。 */
+  var LIST_RE = /^(\s*)([-*+]|\d{1,9}[.)])\s+(.*)$/;
+  var FENCE_RE = /^\s{0,3}(`{3,}|~{3,})(.*)$/;
+  var HR_RE = /^\s{0,3}(?:(?:-\s*){3,}|(?:\*\s*){3,}|(?:_\s*){3,})$/;
+  var HEAD_RE = /^\s{0,3}(#{1,6})\s+(.*?)\s*#*\s*$/;
+  var QUOTE_RE = /^\s{0,3}>/;
+  var BLANK_RE = /^\s*$/;
+
+  function inlineText(s) {
+    var t = escapeHtml(s);
+    t = t.replace(/\\([*_~`\[\]()#|\\])/g, function (m, ch) { return '&#' + ch.charCodeAt(0) + ';'; });
+    t = t.replace(/&lt;br\s*\/?&gt;/gi, '<br>');
+    t = t.replace(/&lt;(\/?)(sub|sup)&gt;/gi, function (m, slash, tag) { return '<' + slash + tag.toLowerCase() + '>'; });
+    t = t.replace(/\[([^\[\]\n]+)\]\((https?:\/\/[^\s()<>]+(?:\([^\s()<>]*\)[^\s()<>]*)*)\)/g, function (m, text, url) {
+      return '<a href="' + url + '" target="_blank" rel="noopener noreferrer">' + text + '</a>';
+    });
+    t = t.replace(/\*\*(?=\S)([\s\S]*?\S)\*\*/g, '<strong>$1</strong>');
+    /* 「100*1.1*2」のような計算式を斜体にしないよう、英数字に挟まれた * は強調として扱わない。 */
+    t = t.replace(/(^|[^*A-Za-z0-9])\*(?=[^\s*])([^*\n]*?[^\s*])\*(?![*A-Za-z0-9])/g, '$1<em>$2</em>');
+    t = t.replace(/~~(?=\S)([\s\S]*?\S)~~/g, '<del>$1</del>');
+    return t;
+  }
+
+  function renderInline(src) {
+    var re = /(`+)([\s\S]*?[^`])\1(?!`)/g;
+    var out = '', last = 0, m;
+    while ((m = re.exec(src)) !== null) {
+      out += inlineText(src.slice(last, m.index));
+      var code = m[2];
+      if (code.length > 2 && code.charAt(0) === ' ' && code.charAt(code.length - 1) === ' ') code = code.slice(1, -1);
+      out += '<code>' + escapeHtml(code) + '</code>';
+      last = m.index + m[0].length;
+    }
+    return out + inlineText(src.slice(last));
+  }
+
+  function splitRow(line) {
+    var s = line.trim();
+    if (s.charAt(0) === '|') s = s.slice(1);
+    if (s.charAt(s.length - 1) === '|' && s.charAt(s.length - 2) !== '\\') s = s.slice(0, -1);
+    var cells = [], cur = '', inCode = false;
+    for (var k = 0; k < s.length; k++) {
+      var ch = s.charAt(k);
+      if (ch === '\\' && s.charAt(k + 1) === '|') { cur += '|'; k++; continue; }
+      if (ch === '`') inCode = !inCode;
+      if (ch === '|' && !inCode) { cells.push(cur.trim()); cur = ''; continue; }
+      cur += ch;
+    }
+    cells.push(cur.trim());
+    return cells;
+  }
+  function isTableSep(line) {
+    return line.indexOf('|') !== -1 && /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/.test(line);
+  }
+  function alignOf(cell) {
+    var c = cell.trim(), l = c.charAt(0) === ':', r = c.charAt(c.length - 1) === ':';
+    return l && r ? 'center' : r ? 'right' : l ? 'left' : '';
+  }
+  function tableHtml(head, aligns, rows) {
+    function al(k) { return aligns[k] ? ' style="text-align:' + aligns[k] + '"' : ''; }
+    var h = '<div class="table-wrap"><table><thead><tr>';
+    for (var k = 0; k < head.length; k++) h += '<th' + al(k) + '>' + renderInline(head[k]) + '</th>';
+    h += '</tr></thead><tbody>';
+    for (var r = 0; r < rows.length; r++) {
+      h += '<tr>';
+      for (var c = 0; c < head.length; c++) h += '<td' + al(c) + '>' + renderInline(rows[r][c] == null ? '' : rows[r][c]) + '</td>';
+      h += '</tr>';
+    }
+    return h + '</tbody></table></div>';
+  }
+
+  function itemBody(lines) {
+    var first = String(lines[0] || '').replace(/^\[ \]\s+/, '☐ ').replace(/^\[[xX]\]\s+/, '☑ ');
+    var parts = [first];
+    for (var i = 1; i < lines.length; i++) if (lines[i] !== '') parts.push(lines[i]);
+    return parts.map(renderInline).join('<br>');
+  }
+  function buildList(items) {
+    var out = '', stack = [];
+    function open(it) {
+      out += it.ordered ? (it.num > 1 ? '<ol start="' + it.num + '">' : '<ol>') : '<ul>';
+      stack.push({ indent: it.indent, ordered: it.ordered });
+    }
+    function close() { var t = stack.pop(); out += '</li>' + (t.ordered ? '</ol>' : '</ul>'); }
+    for (var i = 0; i < items.length; i++) {
+      var it = items[i];
+      if (!stack.length) open(it);
+      else {
+        var top = stack[stack.length - 1];
+        if (it.indent >= top.indent + 2) open(it);
+        else {
+          while (stack.length > 1 && it.indent < top.indent) { close(); top = stack[stack.length - 1]; }
+          if (top.ordered !== it.ordered) { close(); open(it); }
+          else out += '</li>';
+        }
+      }
+      out += '<li>' + itemBody(it.lines);
+    }
+    while (stack.length) close();
+    return out;
+  }
+  function parseList(lines, start) {
+    var items = [], i = start;
+    while (i < lines.length) {
+      var line = lines[i], m = LIST_RE.exec(line);
+      if (m) {
+        var ordered = /\d/.test(m[2]);
+        items.push({ indent: m[1].replace(/\t/g, '    ').length, ordered: ordered, num: ordered ? parseInt(m[2], 10) : 0, lines: [m[3]] });
+        i++; continue;
+      }
+      if (BLANK_RE.test(line)) {
+        var j = i + 1;
+        while (j < lines.length && BLANK_RE.test(lines[j])) j++;
+        if (j < lines.length && (LIST_RE.test(lines[j]) || /^\s{2,}\S/.test(lines[j]))) { items[items.length - 1].lines.push(''); i = j; continue; }
+        break;
+      }
+      if (/^\s{2,}\S/.test(line)) { items[items.length - 1].lines.push(line.trim()); i++; continue; }
+      break;
+    }
+    return { html: buildList(items), next: i };
+  }
+
+  function renderBlocks(lines, depth) {
+    var out = [], para = [], i = 0, m;
+    function flush() {
+      if (para.length) { out.push('<p>' + para.map(renderInline).join('<br>') + '</p>'); para = []; }
+    }
+    while (i < lines.length) {
+      var line = lines[i];
+      if ((m = FENCE_RE.exec(line))) {
+        flush();
+        var close = new RegExp('^\\s{0,3}' + (m[1].charAt(0) === '`' ? '`' : '~') + '{' + m[1].length + ',}\\s*$');
+        var buf = []; i++;
+        while (i < lines.length && !close.test(lines[i])) { buf.push(lines[i]); i++; }
+        i++;
+        out.push('<pre><code>' + escapeHtml(buf.join('\n')) + '</code></pre>');
+        continue;
+      }
+      if (BLANK_RE.test(line)) { flush(); i++; continue; }
+      if ((m = HEAD_RE.exec(line))) {
+        flush();
+        out.push('<h' + m[1].length + '>' + renderInline(m[2]) + '</h' + m[1].length + '>');
+        i++; continue;
+      }
+      if (HR_RE.test(line)) { flush(); out.push('<hr>'); i++; continue; }
+      if (QUOTE_RE.test(line)) {
+        flush();
+        var q = [];
+        while (i < lines.length && QUOTE_RE.test(lines[i])) { q.push(lines[i].replace(/^\s{0,3}>\s?/, '')); i++; }
+        out.push('<blockquote>' + (depth < 6 ? renderBlocks(q, depth + 1) : escapeHtml(q.join('\n'))) + '</blockquote>');
+        continue;
+      }
+      if (line.indexOf('|') !== -1 && i + 1 < lines.length && isTableSep(lines[i + 1])) {
+        flush();
+        var head = splitRow(line), aligns = splitRow(lines[i + 1]).map(alignOf), rows = [];
+        i += 2;
+        while (i < lines.length && lines[i].indexOf('|') !== -1 && !BLANK_RE.test(lines[i])) { rows.push(splitRow(lines[i])); i++; }
+        out.push(tableHtml(head, aligns, rows));
+        continue;
+      }
+      if ((m = LIST_RE.exec(line))) {
+        /* 段落の途中に出てくる「2024. 」のような行を、番号付きリストの始まりと取り違えない。 */
+        var interrupts = !para.length || !/\d/.test(m[2]) || parseInt(m[2], 10) === 1;
+        if (interrupts) {
+          flush();
+          var res = parseList(lines, i);
+          out.push(res.html); i = res.next;
+          continue;
+        }
+      }
+      para.push(line.trim()); i++;
+    }
+    flush();
+    return out.join('\n');
+  }
+  function renderMarkdown(src) {
+    return renderBlocks(String(src == null ? '' : src).replace(/\r\n?/g, '\n').split('\n'), 0);
+  }
+
+  /* ---------- SSE（ストリーミング応答）の読み取り ---------- */
+  function createSSEParser(onEvent) {
+    var buf = '';
+    function dispatch(block) {
+      var event = 'message', data = [], lines = block.split('\n');
+      for (var i = 0; i < lines.length; i++) {
+        var line = lines[i];
+        if (!line || line.charAt(0) === ':') continue;
+        var c = line.indexOf(':');
+        var field = c === -1 ? line : line.slice(0, c);
+        var value = c === -1 ? '' : line.slice(c + 1);
+        if (value.charAt(0) === ' ') value = value.slice(1);
+        if (field === 'event') event = value;
+        else if (field === 'data') data.push(value);
+      }
+      if (data.length) onEvent({ event: event, data: data.join('\n') });
+    }
+    return {
+      feed: function (text) {
+        if (!text) return;
+        buf = (buf + text).replace(/\r\n/g, '\n');
+        var idx;
+        while ((idx = buf.indexOf('\n\n')) !== -1) {
+          var block = buf.slice(0, idx);
+          buf = buf.slice(idx + 2);
+          dispatch(block);
+        }
+      },
+      end: function () {
+        var rest = buf.replace(/\r/g, '');
+        buf = '';
+        if (rest.trim()) dispatch(rest);
+      }
+    };
+  }
+
+  /* ---------- 範囲の計算（0〜1 の割合で持つ） ---------- */
+  function sanitizeRegion(r) {
+    if (!r || typeof r !== 'object') return null;
+    var x = +r.x, y = +r.y, w = +r.w, h = +r.h;
+    if (!isFinite(x) || !isFinite(y) || !isFinite(w) || !isFinite(h)) return null;
+    x = clamp(x, 0, 1); y = clamp(y, 0, 1);
+    w = clamp(w, 0, 1 - x); h = clamp(h, 0, 1 - y);
+    if (w < 0.002 || h < 0.002) return null;
+    if (x <= 0.0005 && y <= 0.0005 && w >= 0.999 && h >= 0.999) return null;
+    return { x: x, y: y, w: w, h: h };
+  }
+  function regionToPixels(region, vw, vh) {
+    var r = sanitizeRegion(region) || { x: 0, y: 0, w: 1, h: 1 };
+    var sx = clamp(Math.round(r.x * vw), 0, vw - 1), sy = clamp(Math.round(r.y * vh), 0, vh - 1);
+    var ex = clamp(Math.round((r.x + r.w) * vw), sx + 1, vw), ey = clamp(Math.round((r.y + r.h) * vh), sy + 1, vh);
+    return { sx: sx, sy: sy, sw: ex - sx, sh: ey - sy };
+  }
+  /* 送る画像の縮小率。Claude は画像を 28px 四方のマスに分けて読み、長辺 2576px・4784 マスを超える画像は
+   * 自分で縮小してから読む。超える分は送っても無駄なので、ちょうど収まる大きさまで先に縮める（拡大はしない）。 */
+  var IMAGE_MAX_EDGE = 2576, IMAGE_MAX_PATCHES = 4784, PATCH = 28;
+  function imagePatches(w, h) { return Math.ceil(w / PATCH) * Math.ceil(h / PATCH); }
+  function fitScale(w, h) {
+    function size(s) { return { w: Math.max(1, Math.round(w * s)), h: Math.max(1, Math.round(h * s)) }; }
+    function over(s) { var z = size(s); return imagePatches(z.w, z.h) > IMAGE_MAX_PATCHES; }
+    var s = Math.min(1, IMAGE_MAX_EDGE / Math.max(w, h));
+    if (over(s)) {
+      s = Math.min(s, Math.sqrt(IMAGE_MAX_PATCHES * PATCH * PATCH / (w * h)));
+      while (over(s)) s *= 0.995;
+    }
+    return s;
+  }
+  function rectFromPoints(a, b) {
+    return { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), w: Math.abs(a.x - b.x), h: Math.abs(a.y - b.y) };
+  }
+  function moveRegion(o, dx, dy) {
+    return { x: clamp(o.x + dx, 0, 1 - o.w), y: clamp(o.y + dy, 0, 1 - o.h), w: o.w, h: o.h };
+  }
+  function resizeRegion(o, handle, p, minW, minH) {
+    var l = o.x, t = o.y, r = o.x + o.w, b = o.y + o.h, s;
+    if (handle.indexOf('w') !== -1) l = p.x;
+    if (handle.indexOf('e') !== -1) r = p.x;
+    if (handle.indexOf('n') !== -1) t = p.y;
+    if (handle.indexOf('s') !== -1) b = p.y;
+    if (l > r) { s = l; l = r; r = s; }
+    if (t > b) { s = t; t = b; b = s; }
+    if (r - l < minW) { r = Math.min(1, l + minW); l = Math.max(0, r - minW); }
+    if (b - t < minH) { b = Math.min(1, t + minH); t = Math.max(0, b - minH); }
+    return { x: l, y: t, w: r - l, h: b - t };
+  }
+
+  /* ---------- モデルの一覧 ---------- */
+  var CLAUDE_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
+  var GEMINI_EFFORTS = ['minimal', 'low', 'medium', 'high', 'xhigh'];
+  function claudeFallbackById(id) { return /^claude-(fable-5|opus-5|sonnet-5-5)/.test(id); }
+
+  var BUILTIN_MODELS = {
+    claude: [
+      ['claude-opus-5-5', 'Claude Opus 5.5'], ['claude-fable-5-2', 'Claude Fable 5.2'], ['claude-sonnet-5-5', 'Claude Sonnet 5.5'],
+      ['claude-haiku-5-5', 'Claude Haiku 5.5'], ['claude-opus-5', 'Claude Opus 5'], ['claude-opus-4-8', 'Claude Opus 4.8']
+    ].map(function (p) {
+      return { id: p[0], label: p[1], provider: 'claude', adaptive: true, efforts: CLAUDE_EFFORTS.slice(), fallback: claudeFallbackById(p[0]), maxOut: 128000 };
+    }),
+    gemini: [
+      ['gemini-4-carbon', 'Gemini 4 Carbon'], ['gemini-4-argon', 'Gemini 4 Argon'], ['gemini-4-hydrogen', 'Gemini 4 Hydrogen'],
+      ['gemini-3.8-flash', 'Gemini 3.8 Flash'], ['gemini-3.1-pro-preview', 'Gemini 3.1 Pro Preview'], ['gemini-3.5-flash', 'Gemini 3.5 Flash']
+    ].map(function (p) { return { id: p[0], label: p[1], provider: 'gemini', thinking: true }; })
+  };
+
+  function claudeModelFromApi(m) {
+    var id = String(m && m.id || '');
+    var caps = m && m.capabilities;
+    var known = null;
+    for (var i = 0; i < BUILTIN_MODELS.claude.length; i++) if (BUILTIN_MODELS.claude[i].id === id) known = BUILTIN_MODELS.claude[i];
+    var out = { id: id, label: String(m && m.display_name || id), provider: 'claude', vision: true, adaptive: false, efforts: [], fallback: false, maxOut: null };
+    if (caps && typeof caps === 'object') {
+      if (caps.image_input && caps.image_input.supported === false) out.vision = false;
+      var th = caps.thinking && caps.thinking.types && caps.thinking.types.adaptive;
+      out.adaptive = !!(th && th.supported);
+      var eff = caps.effort || {};
+      out.efforts = CLAUDE_EFFORTS.filter(function (l) { return eff[l] && eff[l].supported; });
+    } else if (known) {
+      out.adaptive = known.adaptive; out.efforts = known.efforts.slice();
+    }
+    out.fallback = Array.isArray(m && m.allowed_fallback_models) ? m.allowed_fallback_models.length > 0 : claudeFallbackById(id);
+    if (m && typeof m.max_tokens === 'number' && isFinite(m.max_tokens) && m.max_tokens > 0) out.maxOut = m.max_tokens;
+    else if (known) out.maxOut = known.maxOut;
+    return out;
+  }
+
+  var GEMINI_SKIP = /image|tts|embedding|live|audio|robotics|transcribe|translate|omni|banana|veo|imagen|lyria|computer-use|decision|aqa/i;
+  function geminiVersion(id) { var m = /^gemini-(\d+(?:\.\d+)?)/.exec(id); return m ? parseFloat(m[1]) : -1; }
+  function geminiModelsFromApi(list) {
+    var seen = {}, out = [];
+    (list || []).forEach(function (m) {
+      var id = String(m && m.name || '').replace(/^models\//, '');
+      if (!/^gemini-/.test(id) || GEMINI_SKIP.test(id) || seen[id]) return;
+      var methods = Array.isArray(m.supportedGenerationMethods) ? m.supportedGenerationMethods : null;
+      if (methods && methods.length && methods.indexOf('generateContent') === -1 && !methods.some(function (x) { return /interaction/i.test(x); })) return;
+      seen[id] = true;
+      var thinking = m.thinking === true || (m.thinking == null && geminiVersion(id) >= 3);
+      out.push({ id: id, label: String(m.displayName || id), provider: 'gemini', thinking: thinking });
+    });
+    out.sort(function (a, b) {
+      var d = geminiVersion(b.id) - geminiVersion(a.id);
+      return d !== 0 ? d : (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+    });
+    return out;
+  }
+
+  function effectiveEffort(model, effort) {
+    if (!effort || !model) return '';
+    if (model.provider === 'claude') return Array.isArray(model.efforts) && model.efforts.indexOf(effort) !== -1 ? effort : '';
+    return model.thinking && GEMINI_EFFORTS.indexOf(effort) !== -1 ? effort : '';
+  }
+
+  /* ---------- リクエストの組み立て ---------- */
+  var CLAUDE_VERSION = '2026-10-21';
+  var CLAUDE_FALLBACK_BETA = 'server-side-fallback-2026-07-01';
+  var CLAUDE_URL = 'https://api.anthropic.com/v1/messages';
+  var CLAUDE_MODELS_URL = 'https://api.anthropic.com/v1/models';
+  var GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/interactions';
+  var GEMINI_MODELS_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
+
+  function claudeHeaders(apiKey, withFallbackBeta) {
+    var h = { 'x-api-key': apiKey, 'anthropic-version': CLAUDE_VERSION, 'anthropic-dangerous-direct-browser-access': 'true' };
+    if (withFallbackBeta) h['anthropic-beta'] = CLAUDE_FALLBACK_BETA;
+    return h;
+  }
+  function buildClaudeRequest(o) {
+    var m = o.model;
+    var content = [{ type: 'image', source: { type: 'base64', media_type: o.mime, data: o.imageB64 } }];
+    if (o.userText) content.push({ type: 'text', text: o.userText });
+    /* max_tokens は思考と本文を合わせた上限。支出額ではないので、途中で切れないよう広めに取る。 */
+    var body = { model: m.id, max_tokens: Math.min(64000, m.maxOut || 64000), stream: true, messages: [{ role: 'user', content: content }] };
+    if (o.system) body.system = o.system;
+    if (m.adaptive) body.thinking = { type: 'adaptive', display: 'summarized' };
+    var eff = effectiveEffort(m, o.effort);
+    if (eff) body.output_config = { effort: eff };
+    /* 安全判定でモデルが回答を止めたとき、同じ呼び出しの中で別モデルに引き継ぐ保険。 */
+    if (m.fallback) body.fallbacks = 'default';
+    var headers = claudeHeaders(o.apiKey, !!m.fallback);
+    headers['content-type'] = 'application/json';
+    return { url: CLAUDE_URL, headers: headers, body: body };
+  }
+  function buildGeminiRequest(o) {
+    var m = o.model, input = [];
+    if (o.userText) input.push({ type: 'text', text: o.userText });
+    input.push({ type: 'image', data: o.imageB64, mime_type: o.mime });
+    /* store:false = 送った画像と回答を Google 側に保存させない。 */
+    var body = { model: m.id, input: input, stream: true, store: false };
+    if (o.system) body.system_instruction = o.system;
+    if (m.thinking) {
+      body.generation_config = { thinking_summaries: 'auto' };
+      var eff = effectiveEffort(m, o.effort);
+      if (eff) body.generation_config.thinking_level = eff;
+    }
+    return { url: GEMINI_URL, headers: { 'content-type': 'application/json', 'x-goog-api-key': o.apiKey }, body: body };
+  }
+
+  /* ---------- ストリーミング応答の集計 ---------- */
+  function createClaudeAccumulator() {
+    var st = { text: '', thinking: '', model: '', stopReason: null, stopDetails: null, usage: { input: null, output: null, thought: null }, fallbacks: [], error: null, finished: false };
+    function usage(u) {
+      if (!u || typeof u !== 'object') return;
+      if (typeof u.input_tokens === 'number') st.usage.input = u.input_tokens + (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0);
+      if (typeof u.output_tokens === 'number') st.usage.output = u.output_tokens;
+    }
+    return {
+      state: st,
+      onEvent: function (ev) {
+        var j;
+        try { j = JSON.parse(ev.data); } catch (e) { return; }
+        if (!j || typeof j !== 'object') return;
+        switch (j.type) {
+          case 'message_start':
+            if (j.message) { if (j.message.model) st.model = String(j.message.model); usage(j.message.usage); }
+            break;
+          case 'content_block_start': {
+            var b = j.content_block || {};
+            if (b.type === 'text' && typeof b.text === 'string') st.text += b.text;
+            else if (b.type === 'thinking' && typeof b.thinking === 'string') st.thinking += b.thinking;
+            else if (b.type === 'fallback') st.fallbacks.push({ from: String(b.from && b.from.model || '?'), to: String(b.to && b.to.model || '?') });
+            break;
+          }
+          case 'content_block_delta': {
+            var d = j.delta || {};
+            if (d.type === 'text_delta' && typeof d.text === 'string') st.text += d.text;
+            else if (d.type === 'thinking_delta' && typeof d.thinking === 'string') st.thinking += d.thinking;
+            break;
+          }
+          case 'message_delta':
+            if (j.delta) {
+              if (j.delta.stop_reason) st.stopReason = String(j.delta.stop_reason);
+              if (j.delta.stop_details) st.stopDetails = j.delta.stop_details;
+            }
+            if (j.stop_details) st.stopDetails = j.stop_details;
+            usage(j.usage);
+            break;
+          case 'message_stop': st.finished = true; break;
+          case 'error': st.error = j.error && typeof j.error === 'object' ? j.error : { message: String(j.error || 'unknown error') }; break;
+          default: break;
+        }
+      }
+    };
+  }
+
+  function createGeminiAccumulator() {
+    var st = { text: '', thinking: '', model: '', status: null, usage: { input: null, output: null, thought: null }, error: null, finished: false, steps: {} };
+    function usage(u) {
+      if (!u || typeof u !== 'object') return;
+      if (typeof u.total_input_tokens === 'number') st.usage.input = u.total_input_tokens;
+      if (typeof u.total_output_tokens === 'number') st.usage.output = u.total_output_tokens;
+      if (typeof u.total_thought_tokens === 'number') st.usage.thought = u.total_thought_tokens;
+    }
+    return {
+      state: st,
+      onEvent: function (ev) {
+        if (ev.data === '[DONE]') return;
+        var j;
+        try { j = JSON.parse(ev.data); } catch (e) { return; }
+        if (!j || typeof j !== 'object') return;
+        switch (j.event_type || ev.event) {
+          case 'interaction.created':
+            if (j.interaction && j.interaction.model) st.model = String(j.interaction.model);
+            break;
+          case 'interaction.status_update':
+            if (j.status) st.status = String(j.status);
+            break;
+          case 'step.start':
+            st.steps[j.index] = j.step && j.step.type;
+            break;
+          case 'step.delta': {
+            var d = j.delta || {}, kind = st.steps[j.index];
+            if (d.type === 'text' && typeof d.text === 'string') { if (!kind || kind === 'model_output') st.text += d.text; }
+            else if (d.type === 'thought_summary' && d.content && typeof d.content.text === 'string') st.thinking += d.content.text;
+            break;
+          }
+          case 'interaction.completed':
+            st.finished = true;
+            if (j.interaction) {
+              if (j.interaction.status) st.status = String(j.interaction.status);
+              if (j.interaction.model) st.model = String(j.interaction.model);
+              usage(j.interaction.usage);
+            }
+            break;
+          case 'error': st.error = j.error && typeof j.error === 'object' ? j.error : { message: String(j.error || 'unknown error') }; break;
+          default: break;
+        }
+      }
+    };
+  }
+
+  function servedBy(provider, st) {
+    if (provider === 'claude' && st.fallbacks.length) return st.fallbacks[st.fallbacks.length - 1].to;
+    return st.model || '';
+  }
+  /* 「claude-haiku-4-5」と「claude-haiku-4-5-20251001」のように、日付や版番号が付いただけなら同じモデルとみなす。 */
+  function sameModel(requested, served) {
+    if (!requested || !served || requested === served) return true;
+    var a = requested.length <= served.length ? requested : served, b = a === requested ? served : requested;
+    return b.indexOf(a) === 0 && /^[-@]\d{3,8}$/.test(b.slice(a.length));
+  }
+
+  /* 応答が終わったあとに、利用者へ伝えるべき注意書きをまとめる。 */
+  function finalNotes(provider, st) {
+    var notes = [];
+    if (provider === 'claude') {
+      st.fallbacks.forEach(function (f) { notes.push({ kind: 'info', text: f.from + ' が回答を止めたため、' + f.to + ' が代わりに答えました。' }); });
+      if (st.stopReason === 'max_tokens') notes.push({ kind: 'warn', text: '出力が上限に達したため、回答が途中で切れています。' });
+      else if (st.stopReason === 'refusal') {
+        var cat = st.stopDetails && st.stopDetails.category;
+        notes.push({ kind: 'warn', text: '安全上の判定により、AI がこの依頼への回答を止めました' + (cat ? '（区分: ' + cat + '）' : '') + '。別のモデルを選ぶと答えられることがあります。' });
+      } else if (st.stopReason === 'pause_turn') notes.push({ kind: 'warn', text: '処理が途中で止まりました。もう一度送ってください。' });
+      else if (!st.stopReason && !st.error) notes.push({ kind: 'warn', text: '応答が最後まで届く前に接続が切れた可能性があります。' });
+    } else {
+      if (st.status === 'incomplete') notes.push({ kind: 'warn', text: '出力が上限に達したなどの理由で、回答が途中で切れている可能性があります。' });
+      else if (st.status === 'failed') notes.push({ kind: 'error', text: 'AI 側で処理に失敗しました。もう一度送ってください。' });
+      else if (st.status === 'cancelled') notes.push({ kind: 'warn', text: 'AI 側で処理が取り消されました。' });
+      else if (st.status === 'requires_action' || st.status === 'requires_continuation') notes.push({ kind: 'warn', text: '回答が完了しませんでした（状態: ' + st.status + '）。' });
+      else if (!st.finished && !st.error) notes.push({ kind: 'warn', text: '応答が最後まで届く前に接続が切れた可能性があります。' });
+    }
+    if (!st.text.trim() && !st.error && !notes.some(function (n) { return n.kind !== 'info'; })) notes.push({ kind: 'warn', text: '回答の文章が返ってきませんでした。' });
+    return notes;
+  }
+
+  /* ---------- エラーの説明 ---------- */
+  function parseApiError(bodyText) {
+    var j = null;
+    try { j = JSON.parse(bodyText); } catch (e) { j = null; }
+    if (Array.isArray(j)) j = j[0];
+    var e2 = j && j.error;
+    if (e2 && typeof e2 === 'object') {
+      var reason = '';
+      if (Array.isArray(e2.details)) e2.details.forEach(function (d) { if (!reason && d && d.reason) reason = String(d.reason); });
+      return { message: String(e2.message || ''), type: String(e2.type || e2.status || ''), reason: reason };
+    }
+    if (typeof e2 === 'string') return { message: e2, type: '', reason: '' };
+    return { message: String(bodyText || '').slice(0, 300), type: '', reason: '' };
+  }
+  function friendlyHttpError(provider, status, bodyText) {
+    var p = parseApiError(bodyText || ''), name = provider === 'claude' ? 'Claude' : 'Gemini', lead;
+    if (status === 401 || status === 403 || p.reason === 'API_KEY_INVALID' || /api key not valid/i.test(p.message)) lead = name + ' の API キーが正しくないか、権限がありません。設定で確かめてください。';
+    else if (status === 429) lead = '利用の上限に達しました。少し待ってから、もう一度試してください。';
+    else if (status === 404) lead = 'このモデルは使えないようです。設定の「一覧を更新」を押してから、モデルを選び直してください。';
+    else if (status === 413) lead = '画像が大きすぎます。範囲を小さくして、もう一度試してください。';
+    else if (status >= 500) lead = 'AI のサーバーが混み合っているか、一時的な障害が起きています。少し待ってから、もう一度試してください。';
+    else lead = 'API がリクエストを受け付けませんでした。';
+    return lead + '\n（' + status + (p.type ? ' ' + p.type : '') + '：' + (p.message || '詳細なし') + '）';
+  }
+  function streamErrorMessage(err) {
+    var type = String(err && err.type || err && err.code || ''), msg = String(err && err.message || '');
+    var lead = /overloaded|unavailable|timeout|rate_limit/i.test(type) ? 'AI のサーバーが混み合っています。少し待ってから、もう一度試してください。' : 'AI が途中でエラーを返しました。';
+    return lead + '\n（' + (type ? type + '：' : '') + (msg || '詳細なし') + '）';
+  }
+
+  root.KiritoriCore = {
+    escapeHtml: escapeHtml, clamp: clamp, renderMarkdown: renderMarkdown, createSSEParser: createSSEParser,
+    sanitizeRegion: sanitizeRegion, regionToPixels: regionToPixels, fitScale: fitScale, imagePatches: imagePatches, rectFromPoints: rectFromPoints, moveRegion: moveRegion, resizeRegion: resizeRegion,
+    BUILTIN_MODELS: BUILTIN_MODELS, CLAUDE_EFFORTS: CLAUDE_EFFORTS, GEMINI_EFFORTS: GEMINI_EFFORTS,
+    claudeModelFromApi: claudeModelFromApi, geminiModelsFromApi: geminiModelsFromApi, effectiveEffort: effectiveEffort,
+    claudeHeaders: claudeHeaders, buildClaudeRequest: buildClaudeRequest, buildGeminiRequest: buildGeminiRequest,
+    CLAUDE_MODELS_URL: CLAUDE_MODELS_URL, GEMINI_MODELS_URL: GEMINI_MODELS_URL,
+    createClaudeAccumulator: createClaudeAccumulator, createGeminiAccumulator: createGeminiAccumulator,
+    servedBy: servedBy, sameModel: sameModel, finalNotes: finalNotes, parseApiError: parseApiError, friendlyHttpError: friendlyHttpError, streamErrorMessage: streamErrorMessage
+  };
+})(typeof window !== 'undefined' ? window : globalThis);
+</script>
+
+<script>
+/* ============================================================
+ * きりとりAI — app: 画面の操作
+ * ============================================================ */
+(function () {
+  'use strict';
+  var C = window.KiritoriCore;
+  function $(id) { return document.getElementById(id); }
+
+  var STORE_KEY = 'kiritori-ai.v1';
+  var MAX_IMAGE_BYTES = 7000000;  /* base64 にすると約 9.3MB。Claude の 1 枚 10MB の上限に収める */
+  var HIST_PAGE = 20;
+  var PROVIDER_NAME = { claude: 'Claude', gemini: 'Gemini' };
+  var DEFAULT_PROMPT = [
+    'あなたは、画面の一部を切り抜いた画像を受け取るアシスタントです。',
+    '',
+    '- 画像に書かれている文字・数値・図表を正確に読み取ってください。',
+    '- 問題や質問が写っていれば、それに答えてください。結論を先に書き、そのあとに根拠や計算の過程を簡潔に示してください。',
+    '- 問題が写っていなければ、内容を短く要約して説明してください。',
+    '- 読み取れない箇所や判断に迷う箇所は、推測で埋めずにその旨を書いてください。',
+    '- 回答は日本語で書いてください。'
+  ].join('\n');
+
+  var els = {};
+  ['banner', 'modelSelect', 'openSettings', 'shareBtn', 'stopBtn', 'zoomBtn', 'stage', 'video', 'selLayer', 'sel', 'regionRow', 'regionInfo', 'fullBtn',
+    'presetSelect', 'presetSaveBtn', 'presetDeleteBtn', 'presetForm', 'presetName', 'presetOk', 'presetCancel', 'userText', 'sendBtn', 'flash',
+    'current', 'curThumb', 'curTitle', 'curStatus', 'curCopy', 'curThinking', 'curThinkingBody', 'curNotes', 'curAnswer', 'guide',
+    'historyCount', 'clearHistoryBtn', 'historyList', 'moreHistoryBtn', 'settingsDialog', 'closeSettings', 'settingsMsg', 'keyClaude', 'keyGemini',
+    'modelsStatus', 'refreshModels', 'effortLabel', 'effortSelect', 'systemPrompt', 'resetPrompt', 'keepHistory', 'imageDialog', 'bigImage', 'closeImage'
+  ].forEach(function (id) { els[id] = $(id); });
+
+  /* ---------- 設定の保存と読み込み ---------- */
+  function cleanModels(list, provider) {
+    if (!Array.isArray(list)) return null;
+    var out = list.filter(function (m) { return m && typeof m.id === 'string' && m.id && m.provider === provider; });
+    return out.length ? out : null;
+  }
+  function loadSettings() {
+    var raw = null;
+    try { raw = JSON.parse(localStorage.getItem(STORE_KEY) || 'null'); } catch (e) { raw = null; }
+    if (!raw || typeof raw !== 'object') raw = {};
+    var keys = raw.keys && typeof raw.keys === 'object' ? raw.keys : {};
+    var effort = raw.effort && typeof raw.effort === 'object' ? raw.effort : {};
+    var models = raw.models && typeof raw.models === 'object' ? raw.models : {};
+    var at = raw.modelsAt && typeof raw.modelsAt === 'object' ? raw.modelsAt : {};
+    return {
+      keys: { claude: typeof keys.claude === 'string' ? keys.claude : '', gemini: typeof keys.gemini === 'string' ? keys.gemini : '' },
+      model: typeof raw.model === 'string' ? raw.model : '',
+      modelTouched: raw.modelTouched === true,
+      effort: { claude: typeof effort.claude === 'string' ? effort.claude : 'high', gemini: typeof effort.gemini === 'string' ? effort.gemini : '' },
+      systemPrompt: typeof raw.systemPrompt === 'string' ? raw.systemPrompt : DEFAULT_PROMPT,
+      keepHistory: raw.keepHistory !== false,
+      region: C.sanitizeRegion(raw.region),
+      presets: Array.isArray(raw.presets) ? raw.presets.map(function (p) {
+        var r = p && C.sanitizeRegion(p.region);
+        return r && typeof p.name === 'string' && p.name ? { name: p.name.slice(0, 30), region: r } : null;
+      }).filter(Boolean).slice(0, 30) : [],
+      userText: typeof raw.userText === 'string' ? raw.userText : '',
+      models: { claude: cleanModels(models.claude, 'claude'), gemini: cleanModels(models.gemini, 'gemini') },
+      modelsAt: { claude: +at.claude || 0, gemini: +at.gemini || 0 }
+    };
+  }
+  var S = loadSettings();
+  var saveTimer = 0;
+  function flushSave() {
+    clearTimeout(saveTimer); saveTimer = 0;
+    try { localStorage.setItem(STORE_KEY, JSON.stringify(S)); } catch (e) { /* 保存できない環境でも動作は続ける */ }
+  }
+  function saveSettings() { clearTimeout(saveTimer); saveTimer = setTimeout(flushSave, 200); }
+
+  var state = { stream: null, busy: false, abort: null, cur: null, drag: null, presetIdx: -1, renderQueued: false, bigUrl: null,
+    hist: { total: 0, oldest: null, ok: true }, flashTimer: 0, modelErrors: {} };
+
+  /* ---------- 小さな道具 ---------- */
+  function el(tag, cls, text) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text != null) e.textContent = text;
+    return e;
+  }
+  function num(n) { return Number(n).toLocaleString('ja-JP'); }
+  var whenFmt = new Intl.DateTimeFormat('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  function flash(msg, isError) {
+    clearTimeout(state.flashTimer);
+    els.flash.textContent = msg;
+    els.flash.classList.toggle('error', !!isError);
+    state.flashTimer = setTimeout(function () {
+      els.flash.textContent = 'Ctrl + Enter でも送れます。';
+      els.flash.classList.remove('error');
+    }, 6000);
+  }
+  /* 取り消せない操作は、同じボタンをもう一度押して確かめる。 */
+  function armConfirm(btn, confirmLabel, fn) {
+    var armed = false, t = 0, label = btn.textContent;
+    function reset() { armed = false; clearTimeout(t); btn.textContent = label; btn.classList.remove('armed'); }
+    btn.addEventListener('click', function () {
+      if (!armed) { armed = true; label = btn.textContent; btn.textContent = confirmLabel; btn.classList.add('armed'); t = setTimeout(reset, 4000); return; }
+      reset(); fn();
+    });
+  }
+  function copyText(text, btn) {
+    /* 連打されても元の表示に戻せるよう、最初の表示を覚えておく。 */
+    var label = btn.getAttribute('data-label') || btn.textContent;
+    btn.setAttribute('data-label', label);
+    function done(ok) {
+      btn.textContent = ok ? 'コピーしました' : 'コピーできませんでした';
+      clearTimeout(btn._copyTimer);
+      btn._copyTimer = setTimeout(function () { btn.textContent = label; }, 1600);
+    }
+    function fallback() {
+      var ta = el('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      var ok = false;
+      try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+      ta.remove(); done(ok);
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(function () { done(true); }, fallback);
+    else fallback();
+  }
+  function toBlob(canvas, type, quality) {
+    return new Promise(function (resolve, reject) {
+      canvas.toBlob(function (b) { if (b) resolve(b); else reject(new Error('画像を作れませんでした。')); }, type, quality);
+    });
+  }
+  function blobToBase64(blob) {
+    return new Promise(function (resolve, reject) {
+      var fr = new FileReader();
+      fr.onload = function () { var s = String(fr.result); resolve(s.slice(s.indexOf(',') + 1)); };
+      fr.onerror = function () { reject(fr.error || new Error('画像を読み込めませんでした。')); };
+      fr.readAsDataURL(blob);
+    });
+  }
+
+  /* ---------- モデルと「思考の深さ」 ---------- */
+  function modelsFor(provider) { return S.models[provider] || C.BUILTIN_MODELS[provider]; }
+  function findModel(id) {
+    var all = modelsFor('claude').concat(modelsFor('gemini'));
+    for (var i = 0; i < all.length; i++) if (all[i].id === id) return all[i];
+    return null;
+  }
+  function defaultModelId() {
+    var prov = S.keys.claude || !S.keys.gemini ? 'claude' : 'gemini';
+    var list = modelsFor(prov);
+    if (prov === 'claude') for (var i = 0; i < list.length; i++) if (list[i].id === 'claude-opus-5-5') return list[i].id;
+    return list[0].id;
+  }
+  function ensureUsableModel() {
+    var m = findModel(S.model);
+    if (!m) { S.model = defaultModelId(); return; }
+    /* まだ自分でモデルを選んでいない人が片方のキーだけ入れた場合は、そのキーで使えるモデルに合わせる。 */
+    if (!S.modelTouched && !S.keys[m.provider]) {
+      var other = m.provider === 'claude' ? 'gemini' : 'claude';
+      if (S.keys[other]) S.model = defaultModelId();
+    }
+  }
+  function currentModel() { return findModel(S.model) || findModel(defaultModelId()); }
+  function populateModels() {
+    ensureUsableModel();
+    var sel = els.modelSelect;
+    sel.textContent = '';
+    ['claude', 'gemini'].forEach(function (prov) {
+      var og = document.createElement('optgroup');
+      og.label = PROVIDER_NAME[prov] + (S.keys[prov] ? '' : '（キー未設定）');
+      modelsFor(prov).forEach(function (m) {
+        var o = new Option(m.label, m.id);
+        o.title = m.id;
+        og.appendChild(o);
+      });
+      sel.appendChild(og);
+    });
+    sel.value = S.model;
+  }
+  function populateEffort() {
+    var m = currentModel(), prov = m.provider, sel = els.effortSelect;
+    var names = { minimal: '最小（minimal）', low: '浅い（low）', medium: 'ふつう（medium）', high: '深い（high）', xhigh: 'より深い（xhigh）', max: '最大（max）' };
+    var levels = prov === 'claude' ? (m.efforts || []) : (m.thinking ? C.GEMINI_EFFORTS : []);
+    sel.textContent = '';
+    sel.appendChild(new Option('モデルに任せる', ''));
+    levels.forEach(function (l) { sel.appendChild(new Option(names[l] || l, l)); });
+    sel.value = levels.indexOf(S.effort[prov]) !== -1 ? S.effort[prov] : '';
+    sel.disabled = !levels.length;
+    els.effortLabel.textContent = '思考の深さ（' + PROVIDER_NAME[prov] + ' のモデルを使うとき）';
+  }
+  function renderModelsStatus() {
+    var parts = ['claude', 'gemini'].map(function (p) {
+      if (state.modelErrors[p]) return PROVIDER_NAME[p] + '：取得できませんでした（' + state.modelErrors[p].split('\n')[0] + '）';
+      if (S.models[p]) return PROVIDER_NAME[p] + '：' + S.models[p].length + ' 件（' + whenFmt.format(new Date(S.modelsAt[p])) + ' に取得）';
+      return PROVIDER_NAME[p] + '：内蔵の一覧' + (S.keys[p] ? '' : '（キーを入れると最新の一覧を取得できます）');
+    });
+    els.modelsStatus.textContent = parts.join('\n');
+    els.modelsStatus.style.whiteSpace = 'pre-line';
+  }
+  function getJson(url, headers, provider) {
+    return fetch(url, { headers: headers, cache: 'no-store', credentials: 'omit', referrerPolicy: 'no-referrer' }).then(function (res) {
+      if (!res.ok) return res.text().then(function (t) { var e = new Error(C.friendlyHttpError(provider, res.status, t)); e.status = res.status; throw e; });
+      return res.json();
+    }, function () { throw new Error('通信できませんでした。'); });
+  }
+  function fetchClaudeModels(key) {
+    var out = [];
+    function page(after, withBeta, guard) {
+      var url = C.CLAUDE_MODELS_URL + '?limit=1000' + (after ? '&after_id=' + encodeURIComponent(after) : '');
+      return getJson(url, C.claudeHeaders(key, withBeta), 'claude').then(function (j) {
+        out = out.concat(Array.isArray(j.data) ? j.data : []);
+        if (j.has_more && j.last_id && guard < 5) return page(j.last_id, withBeta, guard + 1);
+        return out;
+      });
+    }
+    /* 引き継ぎ先モデルの情報はベータ用ヘッダーを付けたときだけ返る。付けて断られたら、付けずに取り直す。 */
+    return page(null, true, 0).catch(function (err) {
+      if (err && err.status === 400) { out = []; return page(null, false, 0); }
+      throw err;
+    }).then(function (list) {
+      return list.map(C.claudeModelFromApi).filter(function (m) { return m.id && m.vision; });
+    });
+  }
+  function fetchGeminiModels(key) {
+    var out = [];
+    function page(token, guard) {
+      var url = C.GEMINI_MODELS_URL + '?pageSize=1000' + (token ? '&pageToken=' + encodeURIComponent(token) : '');
+      return getJson(url, { 'x-goog-api-key': key }, 'gemini').then(function (j) {
+        out = out.concat(Array.isArray(j.models) ? j.models : []);
+        if (j.nextPageToken && guard < 10) return page(j.nextPageToken, guard + 1);
+        return C.geminiModelsFromApi(out);
+      });
+    }
+    return page('', 0);
+  }
+  function refreshModels(only) {
+    var provs = (only ? [only] : ['claude', 'gemini']).filter(function (p) { return S.keys[p]; });
+    if (!provs.length) { renderModelsStatus(); return Promise.resolve(); }
+    els.refreshModels.disabled = true;
+    els.modelsStatus.textContent = '一覧を取得しています…';
+    return Promise.all(provs.map(function (p) {
+      var key = S.keys[p];
+      return (p === 'claude' ? fetchClaudeModels(key) : fetchGeminiModels(key)).then(function (list) {
+        if (S.keys[p] !== key) return;
+        if (!list.length) throw new Error('使えるモデルが見つかりませんでした');
+        S.models[p] = list; S.modelsAt[p] = Date.now(); delete state.modelErrors[p];
+      }).catch(function (err) { state.modelErrors[p] = String(err && err.message || err); });
+    })).then(function () {
+      els.refreshModels.disabled = false;
+      populateModels(); populateEffort(); renderModelsStatus(); saveSettings();
+    });
+  }
+
+  /* ---------- お知らせ ---------- */
+  function updateBanner() {
+    var b = els.banner;
+    b.textContent = '';
+    if (!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia)) {
+      b.className = 'note error';
+      b.textContent = 'このブラウザでは画面の共有が使えません。パソコンの Chrome か Edge で開いてください。';
+      b.hidden = false; return;
+    }
+    if (!S.keys.claude && !S.keys.gemini) {
+      b.className = 'note info';
+      b.appendChild(document.createTextNode('はじめに、設定で API キーを入れてください。'));
+      var btn = el('button', 'btn small', '設定を開く');
+      btn.type = 'button';
+      btn.addEventListener('click', function () { openSettings(els.keyClaude); });
+      b.appendChild(btn);
+      b.hidden = false; return;
+    }
+    b.hidden = true;
+  }
+
+  /* ---------- 共有 ---------- */
+  function stopShare() {
+    var s = state.stream;
+    state.stream = null;
+    if (s) s.getTracks().forEach(function (t) { try { t.stop(); } catch (e) { /* 既に止まっている */ } });
+    els.video.srcObject = null;
+    updateShareUi();
+  }
+  function startShare() {
+    if (!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia)) { updateBanner(); return; }
+    /* 大きさの上限を明示する理由（Chrome 157 で実測）:
+     * 何も指定しないと、共有される映像は「画面の大きさ（拡大率で割った値）」までに縮められ、
+     * 表示倍率 125%〜150% の PC では実際の表示より粗い映像になって小さな文字が潰れる。
+     * 上限を指定すると、Chrome は共有中だけ相手のタブを最大 2 倍の細かさで描き直すので、切り抜いても文字が鮮明に残る。
+     * コマ数は 15fps で足りる（押した瞬間のコマとのずれは最大でも約 0.07 秒）。 */
+    var opts = { video: { displaySurface: 'browser', width: { max: 3840 }, height: { max: 2160 }, frameRate: { max: 15 } },
+      audio: false, selfBrowserSurface: 'exclude', surfaceSwitching: 'include' };
+    /* タブを選んだあと、そのタブへ画面が切り替わらないようにする（このまま範囲を決められるように）。 */
+    try {
+      if (typeof CaptureController === 'function') {
+        var cc = new CaptureController();
+        try { cc.setFocusBehavior('focus-capturing-application'); }
+        catch (e1) { try { cc.setFocusBehavior('no-focus-change'); } catch (e2) { /* 未対応なら既定の動きに任せる */ } }
+        opts.controller = cc;
+      }
+    } catch (e) { /* 未対応なら既定の動きに任せる */ }
+    navigator.mediaDevices.getDisplayMedia(opts).then(function (stream) {
+      stopShare();
+      state.stream = stream;
+      var track = stream.getVideoTracks()[0];
+      /* ブラウザ側の「共有を停止」で終わった場合も、画面を元に戻す。 */
+      if (track) track.addEventListener('ended', function () { if (state.stream === stream) { stopShare(); flash('共有が終わりました。'); } });
+      els.video.srcObject = stream;
+      var p = els.video.play();
+      if (p && p.catch) p.catch(function () { /* 再生は映像が届きしだい始まる */ });
+      updateShareUi();
+      flash(S.region ? '前に決めた範囲を使います。変えるときは、映像の上をドラッグしてください。' : '映像の上をドラッグして、AI に送る範囲を決めてください。');
+    }, function (err) {
+      if (err && (err.name === 'NotAllowedError' || err.name === 'AbortError')) { flash('共有は始まっていません。'); return; }
+      flash('共有を始められませんでした：' + String(err && err.message || err), true);
+    });
+  }
+  function fitStage() {
+    var vw = els.video.videoWidth, vh = els.video.videoHeight;
+    if (!state.stream || !vw || !vh) { els.stage.style.aspectRatio = ''; els.stage.style.maxWidth = ''; return; }
+    var maxH = document.body.classList.contains('wide') ? '74vh' : '46vh';
+    els.stage.style.aspectRatio = vw + ' / ' + vh;
+    els.stage.style.maxWidth = 'calc(' + maxH + ' * ' + (vw / vh).toFixed(4) + ')';
+  }
+  function updateShareUi() {
+    var on = !!state.stream;
+    els.stage.classList.toggle('empty', !on);
+    els.shareBtn.textContent = on ? '共有先を変える' : '共有するタブを選ぶ';
+    els.shareBtn.classList.toggle('primary', !on);
+    els.stopBtn.hidden = !on;
+    els.zoomBtn.hidden = !on;
+    if (!on && document.body.classList.contains('wide')) setWide(false);
+    updateSendBtn();
+    fitStage();
+    renderRegion();
+  }
+  function setWide(on) {
+    document.body.classList.toggle('wide', on);
+    els.zoomBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    els.zoomBtn.textContent = on ? '小さく戻す' : '大きく表示';
+    fitStage();
+  }
+  function updateSendBtn() {
+    var b = els.sendBtn;
+    b.textContent = state.busy ? '中止する' : 'この範囲を AI に送る';
+    b.classList.toggle('primary', !state.busy);
+    b.classList.toggle('stop', state.busy);
+    b.disabled = !state.busy && !state.stream;
+  }
+
+  /* ---------- 範囲 ---------- */
+  function renderRegion() {
+    var r = S.region, on = !!state.stream, vw = els.video.videoWidth, vh = els.video.videoHeight;
+    if (on && r) {
+      els.sel.hidden = false;
+      els.sel.style.left = (r.x * 100) + '%'; els.sel.style.top = (r.y * 100) + '%';
+      els.sel.style.width = (r.w * 100) + '%'; els.sel.style.height = (r.h * 100) + '%';
+    } else els.sel.hidden = true;
+    els.fullBtn.hidden = !r;
+    var text = '';
+    if (on && vw && vh) {
+      if (r) { var px = C.regionToPixels(r, vw, vh); text = '範囲 ' + px.sw + ' × ' + px.sh + ' px（映像は ' + vw + ' × ' + vh + '）'; }
+      else text = '範囲：映像の全体（' + vw + ' × ' + vh + ' px）';
+    } else if (on) text = '映像を待っています…';
+    else if (r) text = '前に決めた範囲を覚えています。共有を始めると表示されます。';
+    els.regionInfo.textContent = text;
+    els.regionRow.hidden = !text;
+  }
+  function setRegion(r, fromPreset) {
+    S.region = C.sanitizeRegion(r);
+    if (!fromPreset) { state.presetIdx = -1; renderPresets(); }
+    renderRegion();
+    saveSettings();
+  }
+  function pointNorm(e) {
+    var rect = els.stage.getBoundingClientRect();
+    return { x: C.clamp((e.clientX - rect.left) / rect.width, 0, 1), y: C.clamp((e.clientY - rect.top) / rect.height, 0, 1), rect: rect };
+  }
+  function onPointerDown(e) {
+    if (e.button !== 0 || !state.stream) return;
+    var p = pointNorm(e), t = e.target;
+    if (t.classList && t.classList.contains('h') && S.region) state.drag = { mode: 'resize', handle: t.getAttribute('data-h'), start: p, orig: S.region };
+    else if (t === els.sel && S.region) state.drag = { mode: 'move', start: p, orig: S.region };
+    else state.drag = { mode: 'new', start: p, orig: S.region };
+    try { els.selLayer.setPointerCapture(e.pointerId); } catch (err) { /* 取得できなくてもドラッグは続けられる */ }
+    e.preventDefault();
+  }
+  function onPointerMove(e) {
+    var d = state.drag;
+    if (!d) return;
+    var p = pointNorm(e), next;
+    if (d.mode === 'move') next = C.moveRegion(d.orig, p.x - d.start.x, p.y - d.start.y);
+    else if (d.mode === 'resize') next = C.resizeRegion(d.orig, d.handle, p, 8 / p.rect.width, 8 / p.rect.height);
+    else {
+      next = C.rectFromPoints(d.start, p);
+      /* 6px 未満はドラッグではなくクリックとみなし、範囲を変えない。 */
+      if (next.w * p.rect.width < 6 || next.h * p.rect.height < 6) next = null;
+    }
+    d.next = next; d.moved = true;
+    var shown = next || d.orig;
+    if (shown) {
+      els.sel.hidden = false;
+      els.sel.style.left = (shown.x * 100) + '%'; els.sel.style.top = (shown.y * 100) + '%';
+      els.sel.style.width = (shown.w * 100) + '%'; els.sel.style.height = (shown.h * 100) + '%';
+    } else els.sel.hidden = true;
+  }
+  function onPointerUp(e) {
+    var d = state.drag;
+    if (!d) return;
+    state.drag = null;
+    try { els.selLayer.releasePointerCapture(e.pointerId); } catch (err) { /* 既に解放されている */ }
+    if (d.moved && d.next) setRegion(d.next, false);
+    else renderRegion();
+  }
+
+  function renderPresets() {
+    var sel = els.presetSelect;
+    sel.textContent = '';
+    sel.appendChild(new Option(S.presets.length ? '保存した範囲を使う…' : '保存した範囲はまだありません', ''));
+    S.presets.forEach(function (p, i) { sel.appendChild(new Option(p.name, String(i))); });
+    sel.disabled = !S.presets.length;
+    if (!S.presets[state.presetIdx]) state.presetIdx = -1;
+    sel.value = state.presetIdx === -1 ? '' : String(state.presetIdx);
+    els.presetDeleteBtn.hidden = state.presetIdx === -1;
+  }
+  function showPresetForm(show) {
+    els.presetForm.hidden = !show;
+    if (show) {
+      els.presetName.value = state.presetIdx !== -1 ? S.presets[state.presetIdx].name : '範囲 ' + (S.presets.length + 1);
+      els.presetName.focus(); els.presetName.select();
+    }
+  }
+  function savePreset() {
+    var name = els.presetName.value.trim().slice(0, 30);
+    if (!name) { els.presetName.focus(); return; }
+    if (!S.region) { showPresetForm(false); return; }
+    var idx = -1;
+    S.presets.forEach(function (p, i) { if (p.name === name) idx = i; });
+    var item = { name: name, region: { x: S.region.x, y: S.region.y, w: S.region.w, h: S.region.h } };
+    if (idx !== -1) S.presets[idx] = item;
+    else {
+      if (S.presets.length >= 30) { flash('保存できる範囲は 30 個までです。不要なものを削除してください。', true); return; }
+      S.presets.push(item); idx = S.presets.length - 1;
+    }
+    state.presetIdx = idx;
+    showPresetForm(false); renderPresets(); saveSettings();
+    flash('範囲「' + name + '」を保存しました。');
+  }
+
+  /* ---------- 切り抜き ---------- */
+  function captureShot() {
+    var video = els.video, vw = video.videoWidth, vh = video.videoHeight;
+    if (!vw || !vh) return Promise.reject(new Error('映像がまだ届いていません。少し待ってから、もう一度押してください。'));
+    var px = C.regionToPixels(S.region, vw, vh);
+    var canvas = document.createElement('canvas');
+    function draw(scale) {
+      canvas.width = Math.max(1, Math.round(px.sw * scale));
+      canvas.height = Math.max(1, Math.round(px.sh * scale));
+      var ctx = canvas.getContext('2d', { alpha: false });
+      ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(video, px.sx, px.sy, px.sw, px.sh, 0, 0, canvas.width, canvas.height);
+    }
+    function thumb() {
+      var s = Math.min(1, 200 / canvas.width, 150 / canvas.height);
+      var t = document.createElement('canvas');
+      t.width = Math.max(1, Math.round(canvas.width * s)); t.height = Math.max(1, Math.round(canvas.height * s));
+      t.getContext('2d', { alpha: false }).drawImage(canvas, 0, 0, t.width, t.height);
+      return t.toDataURL('image/jpeg', 0.72);
+    }
+    var scale = C.fitScale(px.sw, px.sh);
+    draw(scale);
+    /* 文字がにじまない PNG を基本にし、大きすぎるときだけ JPEG にする。それでも大きければ縮める。 */
+    function encode(tries) {
+      return toBlob(canvas, 'image/png').then(function (png) {
+        if (png.size <= MAX_IMAGE_BYTES) return png;
+        return toBlob(canvas, 'image/jpeg', 0.92).then(function (jpg) {
+          if (jpg.size <= MAX_IMAGE_BYTES || tries >= 4) return jpg;
+          scale *= 0.75; draw(scale);
+          return encode(tries + 1);
+        });
+      });
+    }
+    return encode(0).then(function (blob) {
+      if (blob.size > MAX_IMAGE_BYTES) throw new Error('画像が大きすぎます。範囲を小さくしてください。');
+      return { blob: blob, w: canvas.width, h: canvas.height, thumb: thumb() };
+    });
+  }
+
+  /* ---------- 送信 ---------- */
+  function streamRequest(req, acc, provider, signal, onUpdate) {
+    return fetch(req.url, { method: 'POST', headers: req.headers, body: JSON.stringify(req.body), signal: signal, cache: 'no-store', credentials: 'omit', referrerPolicy: 'no-referrer' }).then(function (res) {
+      if (!res.ok) return res.text().then(function (t) { throw new Error(C.friendlyHttpError(provider, res.status, t)); }, function () { throw new Error(C.friendlyHttpError(provider, res.status, '')); });
+      var events = 0, head = '';
+      var parser = C.createSSEParser(function (ev) { events++; acc.onEvent(ev); });
+      function finish() {
+        parser.end(); onUpdate();
+        if (!events) throw new Error('AI から読み取れない形式の応答が返りました。' + (head ? '\n（' + head.slice(0, 200) + '）' : ''));
+      }
+      if (!res.body || !res.body.getReader) return res.text().then(function (t) { head = t; parser.feed(t); finish(); });
+      var reader = res.body.getReader(), dec = new TextDecoder();
+      function pump() {
+        return reader.read().then(function (r) {
+          if (r.done) { parser.feed(dec.decode()); finish(); return; }
+          var chunk = dec.decode(r.value, { stream: true });
+          if (head.length < 400) head += chunk;
+          parser.feed(chunk); onUpdate();
+          return pump();
+        });
+      }
+      return pump();
+    }, function (err) {
+      if (err && err.name === 'AbortError') throw err;
+      throw new Error('通信できませんでした。インターネットの接続を確かめてください。\n（' + String(err && err.message || err) + '）');
+    });
+  }
+
+  function usageText(u) {
+    if (!u || (u.input == null && u.output == null)) return '';
+    var s = '入力 ' + (u.input == null ? '?' : num(u.input)) + '・出力 ' + (u.output == null ? '?' : num(u.output)) + ' トークン';
+    if (u.thought != null) s += '（別に思考 ' + num(u.thought) + '）';
+    return s;
+  }
+  function renderStatus() {
+    var cur = state.cur;
+    if (!cur) return;
+    var st = cur.acc.state, running = !cur.ended;
+    var secs = (running ? performance.now() - cur.startedAt : cur.elapsed) / 1000;
+    var served = C.servedBy(cur.model.provider, st);
+    els.curTitle.textContent = cur.model.label + (cur.ended && !C.sameModel(cur.model.id, served) ? '（実際に答えたモデル：' + served + '）' : '');
+    var phase = running ? (st.text ? '回答を書いています' : st.thinking ? '考えています' : '返事を待っています')
+      : cur.error ? 'エラー' : cur.aborted ? '中止' : '完了';
+    var parts = [phase, secs.toFixed(1) + ' 秒'];
+    var u = usageText(st.usage);
+    if (u && cur.ended) parts.push(u);
+    els.curStatus.textContent = parts.join(' ・ ');
+  }
+  function renderNotes(box, notes) {
+    box.textContent = '';
+    (notes || []).forEach(function (n) { box.appendChild(el('div', 'note ' + (n.kind === 'error' ? 'error' : n.kind === 'info' ? 'info' : 'warn'), n.text)); });
+  }
+  function renderCurrent() {
+    state.renderQueued = false;
+    var cur = state.cur;
+    if (!cur) return;
+    var st = cur.acc.state;
+    els.curAnswer.innerHTML = C.renderMarkdown(st.text);
+    els.curThinking.hidden = !st.thinking;
+    if (st.thinking && (els.curThinking.open || cur.ended)) els.curThinkingBody.innerHTML = C.renderMarkdown(st.thinking);
+    els.curCopy.hidden = !st.text;
+    renderStatus();
+  }
+  function queueRender() {
+    if (state.renderQueued) return;
+    state.renderQueued = true;
+    requestAnimationFrame(renderCurrent);
+  }
+  function updateGuide() {
+    els.guide.hidden = !!state.cur || state.hist.total > 0;
+  }
+  function setBusy(on) { state.busy = on; updateSendBtn(); }
+
+  function send() {
+    if (state.busy) return;
+    if (!state.stream) { flash('先に、共有するタブを選んでください。', true); return; }
+    var model = currentModel(), provider = model.provider, apiKey = S.keys[provider];
+    if (!apiKey) { openSettings(provider === 'claude' ? els.keyClaude : els.keyGemini, PROVIDER_NAME[provider] + ' の API キーを入れてください。'); return; }
+    setBusy(true);
+    var ac = new AbortController();
+    state.abort = ac;
+    captureShot().then(function (shot) {
+      var prev = state.cur;
+      if (prev && prev.timer) clearInterval(prev.timer);
+      if (prev && prev.url) URL.revokeObjectURL(prev.url);
+      var acc = provider === 'claude' ? C.createClaudeAccumulator() : C.createGeminiAccumulator();
+      var cur = { acc: acc, model: model, shot: shot, userText: els.userText.value.trim(), system: S.systemPrompt.trim(), effort: C.effectiveEffort(model, S.effort[provider]),
+        ts: Date.now(), startedAt: performance.now(), elapsed: 0, ended: false, error: false, aborted: false, notes: [], url: URL.createObjectURL(shot.blob), timer: 0 };
+      state.cur = cur;
+      els.curThumb.src = cur.url;
+      els.current.hidden = false;
+      els.curThinking.open = false;
+      els.curThinkingBody.textContent = '';
+      renderNotes(els.curNotes, []);
+      updateGuide();
+      renderCurrent();
+      cur.timer = setInterval(renderStatus, 200);
+
+      return blobToBase64(shot.blob).then(function (b64) {
+        var build = provider === 'claude' ? C.buildClaudeRequest : C.buildGeminiRequest;
+        var req = build({ model: model, apiKey: apiKey, system: cur.system, userText: cur.userText, imageB64: b64, mime: shot.blob.type, effort: S.effort[provider] });
+        return streamRequest(req, acc, provider, ac.signal, queueRender);
+      }).then(function () {
+        if (acc.state.error) throw new Error(C.streamErrorMessage(acc.state.error));
+        cur.notes = C.finalNotes(provider, acc.state);
+      }).catch(function (err) {
+        if (err && err.name === 'AbortError') { cur.aborted = true; cur.notes = [{ kind: 'warn', text: '中止しました。' }]; }
+        else { cur.error = true; cur.notes = [{ kind: 'error', text: String(err && err.message || err) }]; }
+      }).then(function () {
+        cur.ended = true;
+        cur.elapsed = performance.now() - cur.startedAt;
+        clearInterval(cur.timer); cur.timer = 0;
+        if (state.cur === cur) { renderCurrent(); renderNotes(els.curNotes, cur.notes); }
+        if (!cur.error && !cur.aborted && S.keepHistory) return saveToHistory(cur);
+      });
+    }).catch(function (err) {
+      flash(String(err && err.message || err), true);
+    }).then(function () {
+      state.abort = null;
+      setBusy(false);
+    });
+  }
+
+  /* ---------- 履歴（IndexedDB） ---------- */
+  var DB = (function () {
+    var opening = null;
+    function open() {
+      if (!opening) {
+        opening = new Promise(function (resolve, reject) {
+          var rq;
+          try { rq = indexedDB.open('kiritori-ai', 1); } catch (e) { reject(e); return; }
+          rq.onupgradeneeded = function () {
+            var db = rq.result;
+            if (!db.objectStoreNames.contains('entries')) db.createObjectStore('entries', { keyPath: 'id', autoIncrement: true });
+            if (!db.objectStoreNames.contains('images')) db.createObjectStore('images');
+          };
+          rq.onsuccess = function () { resolve(rq.result); };
+          rq.onerror = function () { reject(rq.error || new Error('保存領域を開けませんでした')); };
+          rq.onblocked = function () { reject(new Error('保存領域がほかのタブで使用中です')); };
+        });
+        opening.catch(function () { opening = null; });
+      }
+      return opening;
+    }
+    function run(stores, mode, work) {
+      return open().then(function (db) {
+        return new Promise(function (resolve, reject) {
+          var tx = db.transaction(stores, mode), result;
+          tx.oncomplete = function () { resolve(result); };
+          tx.onerror = function () { reject(tx.error || new Error('保存に失敗しました')); };
+          tx.onabort = function () { reject(tx.error || new Error('保存が中断されました')); };
+          work(tx, function (v) { result = v; });
+        });
+      });
+    }
+    return {
+      add: function (entry, bytes) {
+        return run(['entries', 'images'], 'readwrite', function (tx, set) {
+          var r = tx.objectStore('entries').add(entry);
+          r.onsuccess = function () { set(r.result); tx.objectStore('images').put({ bytes: bytes, type: entry.imageType }, r.result); };
+        });
+      },
+      list: function (limit, beforeId) {
+        return run(['entries'], 'readonly', function (tx, set) {
+          var out = [];
+          set(out);
+          var rq = tx.objectStore('entries').openCursor(beforeId == null ? null : IDBKeyRange.upperBound(beforeId, true), 'prev');
+          rq.onsuccess = function () { var c = rq.result; if (c && out.length < limit) { out.push(c.value); c.continue(); } };
+        });
+      },
+      count: function () { return run(['entries'], 'readonly', function (tx, set) { var r = tx.objectStore('entries').count(); r.onsuccess = function () { set(r.result); }; }); },
+      image: function (id) { return run(['images'], 'readonly', function (tx, set) { var r = tx.objectStore('images').get(id); r.onsuccess = function () { set(r.result || null); }; }); },
+      remove: function (id) { return run(['entries', 'images'], 'readwrite', function (tx) { tx.objectStore('entries').delete(id); tx.objectStore('images').delete(id); }); },
+      clear: function () { return run(['entries', 'images'], 'readwrite', function (tx) { tx.objectStore('entries').clear(); tx.objectStore('images').clear(); }); }
+    };
+  })();
+
+  function snippetOf(text) {
+    var lines = String(text || '').split('\n');
+    for (var i = 0; i < lines.length; i++) {
+      var s = lines[i].replace(/^[\s#>*+\-|`]+/, '').replace(/[*`_~]/g, '').trim();
+      if (s) return s.slice(0, 140);
+    }
+    return '（回答の文章なし）';
+  }
+  function showImage(url) {
+    if (state.bigUrl) { URL.revokeObjectURL(state.bigUrl); state.bigUrl = null; }
+    els.bigImage.src = url;
+    if (!els.imageDialog.open) els.imageDialog.showModal();
+  }
+  function showStoredImage(id) {
+    DB.image(id).then(function (rec) {
+      if (!rec || !rec.bytes) { flash('この履歴の画像は見つかりませんでした。', true); return; }
+      var url = URL.createObjectURL(new Blob([rec.bytes], { type: rec.type || 'image/png' }));
+      showImage(url);
+      state.bigUrl = url;
+    }, function (err) { flash('画像を開けませんでした：' + String(err && err.message || err), true); });
+  }
+  function fillHistBody(body, entry, details) {
+    var meta = [entry.modelLabel || entry.modelId];
+    if (!C.sameModel(entry.modelId, entry.servedBy)) meta.push('実際に答えたモデル：' + entry.servedBy);
+    if (entry.effort) meta.push('思考の深さ：' + entry.effort);
+    if (entry.secs != null) meta.push(entry.secs + ' 秒');
+    var u = usageText(entry.usage);
+    if (u) meta.push(u);
+    if (entry.w && entry.h) meta.push('画像 ' + entry.w + ' × ' + entry.h + ' px');
+    body.appendChild(el('div', 'small-meta', meta.join(' ・ ')));
+    if (entry.userText) body.appendChild(el('div', 'small-meta', '追加の指示：' + entry.userText));
+    if (entry.notes && entry.notes.length) { var nb = el('div'); renderNotes(nb, entry.notes); body.appendChild(nb); }
+    var md = el('div', 'md');
+    md.innerHTML = C.renderMarkdown(entry.answer || '');
+    body.appendChild(md);
+    if (entry.system) {
+      var d = el('details', 'prompt-used');
+      d.appendChild(el('summary', null, 'このとき使ったシステムプロンプト'));
+      d.appendChild(el('pre', null, entry.system));
+      body.appendChild(d);
+    }
+    var row = el('div', 'row');
+    var copy = el('button', 'btn small', '回答をコピー'); copy.type = 'button';
+    copy.addEventListener('click', function () { copyText(entry.answer || '', copy); });
+    var img = el('button', 'btn small', '画像を開く'); img.type = 'button';
+    img.addEventListener('click', function () { showStoredImage(entry.id); });
+    var del = el('button', 'btn small danger', 'この履歴を消す'); del.type = 'button';
+    armConfirm(del, 'もう一度押すと消えます', function () {
+      DB.remove(entry.id).then(function () {
+        details.remove();
+        state.hist.total = Math.max(0, state.hist.total - 1);
+        updateHistoryHead();
+      }, function (err) { flash('消せませんでした：' + String(err && err.message || err), true); });
+    });
+    row.appendChild(copy); row.appendChild(img); row.appendChild(del);
+    body.appendChild(row);
+  }
+  function histElement(entry) {
+    var d = el('details', 'card hist');
+    var s = el('summary');
+    var img = el('img', 'thumb sm'); img.alt = '';
+    if (typeof entry.thumb === 'string' && entry.thumb.indexOf('data:image/') === 0) img.src = entry.thumb;
+    s.appendChild(img);
+    s.appendChild(el('span', 'snippet', snippetOf(entry.answer)));
+    var when = el('span', 'when');
+    when.appendChild(document.createTextNode(whenFmt.format(new Date(entry.ts))));
+    when.appendChild(el('br'));
+    when.appendChild(document.createTextNode(entry.modelLabel || entry.modelId || ''));
+    s.appendChild(when);
+    d.appendChild(s);
+    var filled = false;
+    d.addEventListener('toggle', function () {
+      if (!d.open || filled) return;
+      filled = true;
+      var body = el('div', 'body');
+      fillHistBody(body, entry, d);
+      d.appendChild(body);
+    });
+    return d;
+  }
+  function updateHistoryHead() {
+    var h = state.hist;
+    els.historyCount.textContent = !h.ok ? 'このブラウザでは履歴を保存できません。' : h.total ? h.total + ' 件' : S.keepHistory ? 'まだありません。送った画像と回答がここに残ります。' : '残さない設定になっています。';
+    els.clearHistoryBtn.hidden = !h.total;
+    updateGuide();
+  }
+  function loadHistory(more) {
+    var h = state.hist;
+    var first = more ? Promise.resolve() : DB.count().then(function (n) { h.total = n; h.oldest = null; els.historyList.textContent = ''; });
+    return first.then(function () { return DB.list(HIST_PAGE + 1, more ? h.oldest : null); }).then(function (items) {
+      var page = items.slice(0, HIST_PAGE);
+      page.forEach(function (e) { els.historyList.appendChild(histElement(e)); });
+      if (page.length) h.oldest = page[page.length - 1].id;
+      els.moreHistoryBtn.hidden = items.length <= HIST_PAGE;
+      h.ok = true;
+    }).catch(function () { h.ok = false; els.moreHistoryBtn.hidden = true; }).then(updateHistoryHead);
+  }
+  function saveToHistory(cur) {
+    var st = cur.acc.state, provider = cur.model.provider;
+    var entry = { ts: cur.ts, provider: provider, modelId: cur.model.id, modelLabel: cur.model.label, servedBy: C.servedBy(provider, st), effort: cur.effort,
+      userText: cur.userText, system: cur.system, answer: st.text, notes: cur.notes, usage: st.usage, secs: Math.round(cur.elapsed / 100) / 10,
+      w: cur.shot.w, h: cur.shot.h, thumb: cur.shot.thumb, imageType: cur.shot.blob.type };
+    return cur.shot.blob.arrayBuffer().then(function (buf) { return DB.add(entry, buf); }).then(function (id) {
+      entry.id = id;
+      els.historyList.insertBefore(histElement(entry), els.historyList.firstChild);
+      state.hist.total++; state.hist.ok = true;
+      if (state.hist.oldest == null) state.hist.oldest = id;
+      updateHistoryHead();
+    }, function (err) {
+      flash('履歴に保存できませんでした：' + String(err && err.message || err), true);
+    });
+  }
+
+  /* ---------- 設定画面 ---------- */
+  function openSettings(focusEl, msg) {
+    els.settingsMsg.hidden = !msg;
+    els.settingsMsg.textContent = msg || '';
+    els.keyClaude.value = S.keys.claude; els.keyGemini.value = S.keys.gemini;
+    els.systemPrompt.value = S.systemPrompt;
+    els.keepHistory.checked = S.keepHistory;
+    populateEffort(); renderModelsStatus();
+    if (!els.settingsDialog.open) els.settingsDialog.showModal();
+    if (focusEl && focusEl.focus) focusEl.focus();
+  }
+  function onKeyInput(provider, input) {
+    var v = input.value.trim();
+    if (v === S.keys[provider]) return;
+    S.keys[provider] = v;
+    /* キーが変わったら、前のキーで取得した一覧は使わない。 */
+    S.models[provider] = null; S.modelsAt[provider] = 0; delete state.modelErrors[provider];
+    populateModels(); populateEffort(); renderModelsStatus(); updateBanner(); saveSettings();
+  }
+
+  /* ---------- つなぎ込み ---------- */
+  els.shareBtn.addEventListener('click', startShare);
+  els.stopBtn.addEventListener('click', stopShare);
+  els.zoomBtn.addEventListener('click', function () { setWide(!document.body.classList.contains('wide')); });
+  els.video.addEventListener('loadedmetadata', function () { fitStage(); renderRegion(); });
+  els.video.addEventListener('resize', function () { fitStage(); renderRegion(); });
+  els.selLayer.addEventListener('pointerdown', onPointerDown);
+  els.selLayer.addEventListener('pointermove', onPointerMove);
+  els.selLayer.addEventListener('pointerup', onPointerUp);
+  els.selLayer.addEventListener('pointercancel', onPointerUp);
+  els.fullBtn.addEventListener('click', function () { setRegion(null, false); });
+
+  els.presetSelect.addEventListener('change', function () {
+    var i = els.presetSelect.value === '' ? -1 : +els.presetSelect.value;
+    state.presetIdx = S.presets[i] ? i : -1;
+    if (state.presetIdx !== -1) setRegion(S.presets[i].region, true);
+    renderPresets();
+  });
+  els.presetSaveBtn.addEventListener('click', function () {
+    if (!S.region) { flash('映像の上をドラッグして範囲を決めてから、保存してください。', true); return; }
+    showPresetForm(els.presetForm.hidden);
+  });
+  els.presetOk.addEventListener('click', savePreset);
+  els.presetCancel.addEventListener('click', function () { showPresetForm(false); });
+  els.presetName.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); savePreset(); }
+    else if (e.key === 'Escape') { e.preventDefault(); showPresetForm(false); }
+  });
+  armConfirm(els.presetDeleteBtn, 'もう一度押すと消えます', function () {
+    if (state.presetIdx === -1) return;
+    S.presets.splice(state.presetIdx, 1);
+    state.presetIdx = -1;
+    renderPresets(); saveSettings();
+  });
+
+  els.userText.value = S.userText;
+  els.userText.addEventListener('input', function () { S.userText = els.userText.value; saveSettings(); });
+  els.sendBtn.addEventListener('click', function () {
+    if (state.busy) { if (state.abort) state.abort.abort(); return; }
+    send();
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !e.isComposing) {
+      if (els.settingsDialog.open || els.imageDialog.open) return;
+      e.preventDefault();
+      if (!state.busy) send();
+    }
+  });
+
+  els.modelSelect.addEventListener('change', function () {
+    S.model = els.modelSelect.value; S.modelTouched = true;
+    populateEffort(); saveSettings();
+  });
+  els.openSettings.addEventListener('click', function () { openSettings(); });
+  els.closeSettings.addEventListener('click', function () { els.settingsDialog.close(); });
+  els.settingsDialog.addEventListener('click', function (e) { if (e.target === els.settingsDialog) els.settingsDialog.close(); });
+  els.settingsDialog.addEventListener('close', function () { if (saveTimer) flushSave(); });
+  els.keyClaude.addEventListener('input', function () { onKeyInput('claude', els.keyClaude); });
+  els.keyGemini.addEventListener('input', function () { onKeyInput('gemini', els.keyGemini); });
+  els.keyClaude.addEventListener('change', function () { if (S.keys.claude && !S.models.claude) refreshModels('claude'); });
+  els.keyGemini.addEventListener('change', function () { if (S.keys.gemini && !S.models.gemini) refreshModels('gemini'); });
+  Array.prototype.forEach.call(document.querySelectorAll('[data-reveal]'), function (btn) {
+    btn.addEventListener('click', function () {
+      var input = $(btn.getAttribute('data-reveal')), show = input.type === 'password';
+      input.type = show ? 'text' : 'password';
+      btn.textContent = show ? '隠す' : '表示';
+    });
+  });
+  els.refreshModels.addEventListener('click', function () {
+    if (!S.keys.claude && !S.keys.gemini) { els.modelsStatus.textContent = '先に API キーを入れてください。'; return; }
+    refreshModels();
+  });
+  els.effortSelect.addEventListener('change', function () { S.effort[currentModel().provider] = els.effortSelect.value; saveSettings(); });
+  els.systemPrompt.addEventListener('input', function () { S.systemPrompt = els.systemPrompt.value; saveSettings(); });
+  armConfirm(els.resetPrompt, 'もう一度押すと、今の文面が消えます', function () {
+    S.systemPrompt = DEFAULT_PROMPT; els.systemPrompt.value = DEFAULT_PROMPT; saveSettings();
+  });
+  els.keepHistory.addEventListener('change', function () { S.keepHistory = els.keepHistory.checked; saveSettings(); updateHistoryHead(); });
+
+  els.curThumb.addEventListener('click', function () { if (state.cur) showImage(state.cur.url); });
+  els.curCopy.addEventListener('click', function () { if (state.cur) copyText(state.cur.acc.state.text, els.curCopy); });
+  els.curThinking.addEventListener('toggle', function () { if (els.curThinking.open) renderCurrent(); });
+  els.closeImage.addEventListener('click', function () { els.imageDialog.close(); });
+  els.imageDialog.addEventListener('click', function (e) { if (e.target === els.imageDialog) els.imageDialog.close(); });
+  els.imageDialog.addEventListener('close', function () {
+    els.bigImage.removeAttribute('src');
+    if (state.bigUrl) { URL.revokeObjectURL(state.bigUrl); state.bigUrl = null; }
+  });
+
+  armConfirm(els.clearHistoryBtn, 'もう一度押すと、すべて消えます', function () {
+    DB.clear().then(function () {
+      els.historyList.textContent = '';
+      state.hist.total = 0; state.hist.oldest = null;
+      els.moreHistoryBtn.hidden = true;
+      updateHistoryHead();
+    }, function (err) { flash('消せませんでした：' + String(err && err.message || err), true); });
+  });
+  els.moreHistoryBtn.addEventListener('click', function () { loadHistory(true); });
+  /* 閉じるときに書き込むのは、まだ保存していない変更があるときだけ。
+   * 無条件に書くと、このアプリを 2 つ開いていた場合に、古いほうを閉じた時点で新しいほうの設定を上書きしてしまう。 */
+  function flushIfPending() { if (saveTimer) flushSave(); }
+  window.addEventListener('pagehide', flushIfPending);
+
+  /* ---------- 起動 ---------- */
+  populateModels();
+  populateEffort();
+  renderPresets();
+  updateBanner();
+  updateShareUi();
+  loadHistory(false);
+  /* キーがあるのに一覧が未取得か、1 日以上前のものなら、裏で取り直す（新しいモデルが自動で並ぶように）。 */
+  ['claude', 'gemini'].forEach(function (p) {
+    if (S.keys[p] && (!S.models[p] || Date.now() - S.modelsAt[p] > 24 * 60 * 60 * 1000)) refreshModels(p);
+  });
+})();
+</script>
+</body>
+</html>
