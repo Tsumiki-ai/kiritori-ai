@@ -275,6 +275,33 @@ t('Gemini: リクエストの形', () => {
   assert.deepEqual(JSON.parse(JSON.stringify(r3.body.generation_config)), { thinking_summaries: 'auto' });
   assert.equal(C.effectiveEffort(m, 'max'), '');
 });
+t('画像を複数まとめて送るときのリクエストの形', () => {
+  const j = (v) => JSON.parse(JSON.stringify(v));
+  const note = (n) => `画像は ${n} 枚あります。1 枚目から順に続く、ひと続きの内容として読んでください。`;
+  const imgs = [{ b64: 'AAAA', mime: 'image/png' }, { b64: 'BBBB', mime: 'image/jpeg' }, { b64: 'CCCC', mime: 'image/png' }];
+  const cm = C.BUILTIN_MODELS.claude[0], gm = C.BUILTIN_MODELS.gemini[0];
+  // Claude: 画像を順番どおりに並べ、最後に文章（複数枚の一文 + 追加の指示）
+  const c = C.buildClaudeRequest({ model: cm, apiKey: 'K', system: 'S', userText: 'Q', images: imgs, effort: 'high' });
+  assert.deepEqual(j(c.body.messages), [{ role: 'user', content: [
+    { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AAAA' } },
+    { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: 'BBBB' } },
+    { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'CCCC' } },
+    { type: 'text', text: note(3) + '\n\nQ' },
+  ] }]);
+  const c2 = C.buildClaudeRequest({ model: cm, apiKey: 'K', images: imgs.slice(0, 2) });
+  assert.equal(j(c2.body.messages)[0].content[2].text, note(2)); // 追加の指示がなくても、一文だけは添える
+  // Gemini: 先に文章、そのあとに画像を順番どおり
+  const g = C.buildGeminiRequest({ model: gm, apiKey: 'G', system: 'S', userText: 'Q', images: imgs, effort: '' });
+  assert.deepEqual(j(g.body.input), [
+    { type: 'text', text: note(3) + '\n\nQ' },
+    { type: 'image', data: 'AAAA', mime_type: 'image/png' }, { type: 'image', data: 'BBBB', mime_type: 'image/jpeg' }, { type: 'image', data: 'CCCC', mime_type: 'image/png' },
+  ]);
+  // 1 枚のときは、これまでと同じ形（一文は添えない）
+  const one = C.buildClaudeRequest({ model: cm, apiKey: 'K', userText: '', images: imgs.slice(0, 1) });
+  assert.deepEqual(j(one.body.messages)[0].content, [{ type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AAAA' } }]);
+  const oneG = C.buildGeminiRequest({ model: gm, apiKey: 'G', userText: 'Q', images: imgs.slice(0, 1) });
+  assert.deepEqual(j(oneG.body.input), [{ type: 'text', text: 'Q' }, { type: 'image', data: 'AAAA', mime_type: 'image/png' }]);
+});
 t('Gemini: モデル一覧の絞り込みと並び', () => {
   const list = C.geminiModelsFromApi([
     { name: 'models/gemini-3.5-flash', displayName: 'Gemini 3.5 Flash', supportedGenerationMethods: ['generateContent', 'countTokens'], thinking: true },

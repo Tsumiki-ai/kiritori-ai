@@ -133,11 +133,24 @@ label.lbl { display: block; font-size: 12.5px; color: var(--muted); margin-botto
 
 .region-row { display: flex; align-items: center; gap: 8px; min-height: 28px; }
 .region-row .info { flex: 1; min-width: 0; color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
-.preset-row { display: flex; gap: 8px; align-items: center; }
-.preset-row select { flex: 1; min-width: 0; }
-.preset-row .btn { flex: none; white-space: nowrap; }
-.preset-form { display: flex; gap: 8px; align-items: center; }
-.preset-form input { flex: 1; min-width: 0; }
+.queue { display: flex; flex-direction: column; gap: 8px; padding: 8px 10px; border: 1px dashed var(--line); border-radius: var(--radius); }
+.queue-head { display: flex; align-items: center; gap: 8px; }
+.queue-head .info { flex: 1; min-width: 0; color: var(--muted); font-size: 12.5px; }
+.queue-head .btn { flex: none; white-space: nowrap; }
+.queue-list { display: flex; flex-wrap: wrap; gap: 10px; padding-top: 4px; }
+.queue-item { position: relative; }
+.queue-item .thumb { display: block; cursor: zoom-in; }
+.queue-item .num { position: absolute; left: 3px; top: 3px; min-width: 18px; padding: 0 4px; border-radius: 9px; background: var(--fg); color: var(--panel); font-size: 11px; line-height: 18px; text-align: center; font-variant-numeric: tabular-nums; }
+.queue-item .x { position: absolute; right: -7px; top: -7px; width: 22px; height: 22px; padding: 0; border-radius: 50%; border: 1px solid var(--line); background: var(--panel); color: var(--fg); font-size: 14px; line-height: 1; cursor: pointer; }
+.queue-item .x:hover { border-color: var(--danger); color: var(--danger); }
+.queue-item .x:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.send-row { display: flex; gap: 8px; }
+.send-row #holdBtn { flex: none; width: auto; }
+.send-row #sendBtn { flex: 1; min-width: 0; width: auto; }
+.thumbs { display: flex; flex-wrap: wrap; gap: 6px; flex: none; max-width: 62%; }
+.thumbs .thumb { cursor: zoom-in; }
+.hist-thumb { position: relative; flex: none; display: block; }
+.hist-thumb .badge { position: absolute; right: -6px; bottom: -6px; padding: 0 5px; border-radius: 9px; background: var(--fg); color: var(--panel); font-size: 11px; line-height: 18px; font-variant-numeric: tabular-nums; }
 .hint { color: var(--muted); font-size: 12.5px; }
 .flash { font-size: 12.5px; color: var(--muted); min-height: 1.6em; }
 .flash.error { color: var(--danger); }
@@ -262,30 +275,30 @@ dialog::backdrop { background: rgba(0, 0, 0, .5); }
         <button id="fullBtn" class="btn small" type="button" hidden>全体に戻す</button>
       </div>
 
-      <div class="preset-row">
-        <select id="presetSelect" aria-label="保存した範囲"></select>
-        <button id="presetSaveBtn" class="btn small" type="button">今の範囲を保存</button>
-        <button id="presetDeleteBtn" class="btn small danger" type="button" hidden>削除</button>
-      </div>
-      <div id="presetForm" class="preset-form" hidden>
-        <input id="presetName" type="text" maxlength="30" placeholder="名前（例：左ページ）" aria-label="保存する範囲の名前">
-        <button id="presetOk" class="btn small primary" type="button">保存</button>
-        <button id="presetCancel" class="btn small" type="button">やめる</button>
-      </div>
-
       <div>
         <label class="lbl" for="userText">追加の指示（任意）</label>
         <textarea id="userText" rows="2" placeholder="例：この問題の解き方を教えて"></textarea>
       </div>
 
-      <button id="sendBtn" class="btn primary big" type="button" disabled>この範囲を AI に送る</button>
+      <div id="queueBox" class="queue" hidden>
+        <div class="queue-head">
+          <span id="queueInfo" class="info"></span>
+          <button id="queueClear" class="btn small" type="button">全部消す</button>
+        </div>
+        <div id="queueList" class="queue-list"></div>
+      </div>
+
+      <div class="send-row">
+        <button id="holdBtn" class="btn big" type="button" disabled title="今の範囲を取っておき、あとでまとめて送ります">ためる</button>
+        <button id="sendBtn" class="btn primary big" type="button" disabled>送信</button>
+      </div>
       <p id="flash" class="flash" role="status" aria-live="polite">Ctrl + Enter でも送れます。</p>
     </section>
 
     <section class="answers" aria-label="回答と履歴">
       <article id="current" class="card current" hidden>
         <div class="meta">
-          <img id="curThumb" class="thumb" alt="送った画像（クリックで拡大）">
+          <div id="curThumbs" class="thumbs"></div>
           <div class="who">
             <div id="curTitle" class="title"></div>
             <div id="curStatus" class="status" role="status"></div>
@@ -305,7 +318,7 @@ dialog::backdrop { background: rgba(0, 0, 0, .5); }
         <ol>
           <li><strong>タブを選ぶ</strong>「共有するタブを選ぶ」を押して、AI に見せたいタブかウィンドウを選びます。</li>
           <li><strong>範囲を決める</strong>映った映像の上をドラッグします。決めた範囲は次に開いたときも残ります。</li>
-          <li><strong>ボタンを押す</strong>押した瞬間の画面をその範囲で切り抜いて AI に送ります。返事はここに出ます。</li>
+          <li><strong>送信を押す</strong>押した瞬間の画面をその範囲で切り抜いて AI に送ります。返事はここに出ます。1 画面に入りきらないときは、「ためる」で何枚か取っておいてから送信すると、まとめて送れます。</li>
         </ol>
       </div>
 
@@ -735,10 +748,16 @@ dialog::backdrop { background: rgba(0, 0, 0, .5); }
     if (withFallbackBeta) h['anthropic-beta'] = CLAUDE_FALLBACK_BETA;
     return h;
   }
+  /* 送る画像は 1 枚でも複数枚でも同じ形（images: [{ b64, mime }, …]）で受け取る。
+   * 複数枚のときは、順番どおりのひと続きの内容として読むように一文を添える。 */
+  function imagesOf(o) { return Array.isArray(o.images) && o.images.length ? o.images : [{ b64: o.imageB64, mime: o.mime }]; }
+  function multiNote(n) { return n > 1 ? '画像は ' + n + ' 枚あります。1 枚目から順に続く、ひと続きの内容として読んでください。' : ''; }
+  function textOf(o, n) { return [multiNote(n), o.userText || ''].filter(Boolean).join('\n\n'); }
   function buildClaudeRequest(o) {
-    var m = o.model;
-    var content = [{ type: 'image', source: { type: 'base64', media_type: o.mime, data: o.imageB64 } }];
-    if (o.userText) content.push({ type: 'text', text: o.userText });
+    var m = o.model, imgs = imagesOf(o);
+    var content = imgs.map(function (im) { return { type: 'image', source: { type: 'base64', media_type: im.mime, data: im.b64 } }; });
+    var text = textOf(o, imgs.length);
+    if (text) content.push({ type: 'text', text: text });
     /* max_tokens は思考と本文を合わせた上限。支出額ではないので、途中で切れないよう広めに取る。 */
     var body = { model: m.id, max_tokens: Math.min(64000, m.maxOut || 64000), stream: true, messages: [{ role: 'user', content: content }] };
     if (o.system) body.system = o.system;
@@ -752,9 +771,9 @@ dialog::backdrop { background: rgba(0, 0, 0, .5); }
     return { url: CLAUDE_URL, headers: headers, body: body };
   }
   function buildGeminiRequest(o) {
-    var m = o.model, input = [];
-    if (o.userText) input.push({ type: 'text', text: o.userText });
-    input.push({ type: 'image', data: o.imageB64, mime_type: o.mime });
+    var m = o.model, imgs = imagesOf(o), input = [], text = textOf(o, imgs.length);
+    if (text) input.push({ type: 'text', text: text });
+    imgs.forEach(function (im) { input.push({ type: 'image', data: im.b64, mime_type: im.mime }); });
     /* store:false = 送った画像と回答を Google 側に保存させない。 */
     var body = { model: m.id, input: input, stream: true, store: false };
     if (o.system) body.system_instruction = o.system;
@@ -946,6 +965,8 @@ dialog::backdrop { background: rgba(0, 0, 0, .5); }
 
   var STORE_KEY = 'kiritori-ai.v1';
   var MAX_IMAGE_BYTES = 7000000;  /* base64 にすると約 9.3MB。Claude の 1 枚 10MB の上限に収める */
+  var MAX_QUEUE = 8;              /* 「ためる」で取っておける枚数 */
+  var MAX_QUEUE_BYTES = 13000000; /* ためた画像の合計。base64 で約 17MB になり、Gemini の 1 回 20MB の上限に収まる */
   var HIST_PAGE = 20;
   var PROVIDER_NAME = { claude: 'Claude', gemini: 'Gemini' };
   var DEFAULT_PROMPT = [
@@ -960,8 +981,8 @@ dialog::backdrop { background: rgba(0, 0, 0, .5); }
 
   var els = {};
   ['banner', 'modelSelect', 'openSettings', 'shareBtn', 'stopBtn', 'zoomBtn', 'stage', 'video', 'selLayer', 'sel', 'regionRow', 'regionInfo', 'fullBtn',
-    'presetSelect', 'presetSaveBtn', 'presetDeleteBtn', 'presetForm', 'presetName', 'presetOk', 'presetCancel', 'userText', 'sendBtn', 'flash',
-    'current', 'curThumb', 'curTitle', 'curStatus', 'curCopy', 'curThinking', 'curThinkingBody', 'curNotes', 'curAnswer', 'guide',
+    'userText', 'queueBox', 'queueInfo', 'queueClear', 'queueList', 'holdBtn', 'sendBtn', 'flash',
+    'current', 'curThumbs', 'curTitle', 'curStatus', 'curCopy', 'curThinking', 'curThinkingBody', 'curNotes', 'curAnswer', 'guide',
     'historyCount', 'clearHistoryBtn', 'historyList', 'moreHistoryBtn', 'settingsDialog', 'closeSettings', 'settingsMsg', 'keyClaude', 'keyGemini',
     'modelsStatus', 'refreshModels', 'effortLabel', 'effortSelect', 'systemPrompt', 'resetPrompt', 'keepHistory', 'imageDialog', 'bigImage', 'closeImage'
   ].forEach(function (id) { els[id] = $(id); });
@@ -988,10 +1009,6 @@ dialog::backdrop { background: rgba(0, 0, 0, .5); }
       systemPrompt: typeof raw.systemPrompt === 'string' ? raw.systemPrompt : DEFAULT_PROMPT,
       keepHistory: raw.keepHistory !== false,
       region: C.sanitizeRegion(raw.region),
-      presets: Array.isArray(raw.presets) ? raw.presets.map(function (p) {
-        var r = p && C.sanitizeRegion(p.region);
-        return r && typeof p.name === 'string' && p.name ? { name: p.name.slice(0, 30), region: r } : null;
-      }).filter(Boolean).slice(0, 30) : [],
       userText: typeof raw.userText === 'string' ? raw.userText : '',
       models: { claude: cleanModels(models.claude, 'claude'), gemini: cleanModels(models.gemini, 'gemini') },
       modelsAt: { claude: +at.claude || 0, gemini: +at.gemini || 0 }
@@ -1005,7 +1022,7 @@ dialog::backdrop { background: rgba(0, 0, 0, .5); }
   }
   function saveSettings() { clearTimeout(saveTimer); saveTimer = setTimeout(flushSave, 200); }
 
-  var state = { stream: null, busy: false, abort: null, cur: null, drag: null, presetIdx: -1, renderQueued: false, bigUrl: null,
+  var state = { stream: null, busy: false, abort: null, cur: null, drag: null, queue: [], renderQueued: false, bigUrl: null,
     hist: { total: 0, oldest: null, ok: true }, flashTimer: 0, modelErrors: {} };
 
   /* ---------- 小さな道具 ---------- */
@@ -1269,12 +1286,16 @@ dialog::backdrop { background: rgba(0, 0, 0, .5); }
     els.zoomBtn.textContent = on ? '小さく戻す' : '大きく表示';
     fitStage();
   }
+  /* 送信ボタン: ためた画像があればそれだけを送り、なければ押した瞬間の画面を 1 枚送る。
+   * 表示は 1 枚なら「送信」、2 枚以上なら「送信（N枚）」。 */
   function updateSendBtn() {
-    var b = els.sendBtn;
-    b.textContent = state.busy ? '中止する' : 'この範囲を AI に送る';
+    var b = els.sendBtn, n = state.queue.length;
+    b.textContent = state.busy ? '中止する' : n >= 2 ? '送信（' + n + '枚）' : '送信';
     b.classList.toggle('primary', !state.busy);
     b.classList.toggle('stop', state.busy);
-    b.disabled = !state.busy && !state.stream;
+    b.disabled = !state.busy && !state.stream && !n;
+    els.holdBtn.disabled = state.busy || !state.stream || n >= MAX_QUEUE;
+    els.queueClear.disabled = state.busy;
   }
 
   /* ---------- 範囲 ---------- */
@@ -1295,9 +1316,9 @@ dialog::backdrop { background: rgba(0, 0, 0, .5); }
     els.regionInfo.textContent = text;
     els.regionRow.hidden = !text;
   }
-  function setRegion(r, fromPreset) {
+  /* 決めた範囲は自動で覚えておき、次に開いたときもそのまま使う。 */
+  function setRegion(r) {
     S.region = C.sanitizeRegion(r);
-    if (!fromPreset) { state.presetIdx = -1; renderPresets(); }
     renderRegion();
     saveSettings();
   }
@@ -1338,42 +1359,59 @@ dialog::backdrop { background: rgba(0, 0, 0, .5); }
     if (!d) return;
     state.drag = null;
     try { els.selLayer.releasePointerCapture(e.pointerId); } catch (err) { /* 既に解放されている */ }
-    if (d.moved && d.next) setRegion(d.next, false);
+    if (d.moved && d.next) setRegion(d.next);
     else renderRegion();
   }
 
-  function renderPresets() {
-    var sel = els.presetSelect;
-    sel.textContent = '';
-    sel.appendChild(new Option(S.presets.length ? '保存した範囲を使う…' : '保存した範囲はまだありません', ''));
-    S.presets.forEach(function (p, i) { sel.appendChild(new Option(p.name, String(i))); });
-    sel.disabled = !S.presets.length;
-    if (!S.presets[state.presetIdx]) state.presetIdx = -1;
-    sel.value = state.presetIdx === -1 ? '' : String(state.presetIdx);
-    els.presetDeleteBtn.hidden = state.presetIdx === -1;
+  /* ---------- ためる（1 画面に入りきらない内容を、何枚かに分けて取っておく） ---------- */
+  function renderQueue() {
+    var n = state.queue.length;
+    els.queueBox.hidden = !n;
+    els.queueList.textContent = '';
+    state.queue.forEach(function (q, i) {
+      var item = el('div', 'queue-item');
+      var img = el('img', 'thumb sm');
+      img.alt = 'ためた画像 ' + (i + 1) + '（クリックで拡大）';
+      img.src = q.thumb;
+      img.addEventListener('click', function () { showImage(q.url); });
+      var x = el('button', 'x', '×');
+      x.type = 'button'; x.title = 'この 1 枚を消す';
+      x.setAttribute('aria-label', (i + 1) + ' 枚目を消す');
+      x.addEventListener('click', function () { if (!state.busy) removeQueued(q); });
+      item.appendChild(img); item.appendChild(el('span', 'num', String(i + 1))); item.appendChild(x);
+      els.queueList.appendChild(item);
+    });
+    els.queueInfo.textContent = n ? 'ためた画像 ' + n + ' 枚。送信すると、この ' + n + ' 枚だけを送ります（今の画面は含みません）。' : '';
+    updateSendBtn();
   }
-  function showPresetForm(show) {
-    els.presetForm.hidden = !show;
-    if (show) {
-      els.presetName.value = state.presetIdx !== -1 ? S.presets[state.presetIdx].name : '範囲 ' + (S.presets.length + 1);
-      els.presetName.focus(); els.presetName.select();
-    }
+  /* 画像の表示用アドレスは、どこからも使われなくなった時点で解放する。 */
+  function releaseShots(shots) {
+    (shots || []).forEach(function (s) { if (s.url && state.queue.indexOf(s) === -1 && !(state.cur && state.cur.shots.indexOf(s) !== -1)) { URL.revokeObjectURL(s.url); s.url = null; } });
   }
-  function savePreset() {
-    var name = els.presetName.value.trim().slice(0, 30);
-    if (!name) { els.presetName.focus(); return; }
-    if (!S.region) { showPresetForm(false); return; }
-    var idx = -1;
-    S.presets.forEach(function (p, i) { if (p.name === name) idx = i; });
-    var item = { name: name, region: { x: S.region.x, y: S.region.y, w: S.region.w, h: S.region.h } };
-    if (idx !== -1) S.presets[idx] = item;
-    else {
-      if (S.presets.length >= 30) { flash('保存できる範囲は 30 個までです。不要なものを削除してください。', true); return; }
-      S.presets.push(item); idx = S.presets.length - 1;
-    }
-    state.presetIdx = idx;
-    showPresetForm(false); renderPresets(); saveSettings();
-    flash('範囲「' + name + '」を保存しました。');
+  function removeQueued(q) {
+    var i = state.queue.indexOf(q);
+    if (i === -1) return;
+    state.queue.splice(i, 1);
+    releaseShots([q]);
+    renderQueue();
+  }
+  function clearQueue() {
+    var old = state.queue;
+    state.queue = [];
+    releaseShots(old);
+    renderQueue();
+  }
+  function hold() {
+    if (state.busy || !state.stream) return;
+    if (state.queue.length >= MAX_QUEUE) { flash('ためられるのは ' + MAX_QUEUE + ' 枚までです。', true); return; }
+    captureShot().then(function (shot) {
+      var total = state.queue.reduce(function (s, q) { return s + q.blob.size; }, 0) + shot.blob.size;
+      if (total > MAX_QUEUE_BYTES) { flash('ためた画像の合計が大きくなりすぎるので、これ以上は足せません。いったん送信してください。', true); return; }
+      shot.url = URL.createObjectURL(shot.blob);
+      state.queue.push(shot);
+      renderQueue();
+      flash(state.queue.length + ' 枚目をためました。続きを映して「ためる」、そろったら「送信」を押してください。');
+    }, function (err) { flash(String(err && err.message || err), true); });
   }
 
   /* ---------- 切り抜き ---------- */
@@ -1487,24 +1525,39 @@ dialog::backdrop { background: rgba(0, 0, 0, .5); }
     els.guide.hidden = !!state.cur || state.hist.total > 0;
   }
   function setBusy(on) { state.busy = on; updateSendBtn(); }
+  function renderCurThumbs(cur) {
+    els.curThumbs.textContent = '';
+    var many = cur.shots.length > 1;
+    cur.shots.forEach(function (s, i) {
+      var img = el('img', many ? 'thumb sm' : 'thumb');
+      img.alt = '送った画像' + (many ? ' ' + (i + 1) : '') + '（クリックで拡大）';
+      img.src = s.thumb;
+      img.addEventListener('click', function () { if (s.url) showImage(s.url); });
+      els.curThumbs.appendChild(img);
+    });
+  }
 
   function send() {
     if (state.busy) return;
-    if (!state.stream) { flash('先に、共有するタブを選んでください。', true); return; }
+    var queued = state.queue.length > 0;
+    if (!queued && !state.stream) { flash('先に、共有するタブを選んでください。', true); return; }
     var model = currentModel(), provider = model.provider, apiKey = S.keys[provider];
     if (!apiKey) { openSettings(provider === 'claude' ? els.keyClaude : els.keyGemini, PROVIDER_NAME[provider] + ' の API キーを入れてください。'); return; }
     setBusy(true);
     var ac = new AbortController();
     state.abort = ac;
-    captureShot().then(function (shot) {
+    /* ためた画像があればそれを順番どおりに、なければ今の画面を 1 枚だけ使う。 */
+    var getShots = queued ? Promise.resolve(state.queue.slice())
+      : captureShot().then(function (shot) { shot.url = URL.createObjectURL(shot.blob); return [shot]; });
+    getShots.then(function (shots) {
       var prev = state.cur;
       if (prev && prev.timer) clearInterval(prev.timer);
-      if (prev && prev.url) URL.revokeObjectURL(prev.url);
       var acc = provider === 'claude' ? C.createClaudeAccumulator() : C.createGeminiAccumulator();
-      var cur = { acc: acc, model: model, shot: shot, userText: els.userText.value.trim(), system: S.systemPrompt.trim(), effort: C.effectiveEffort(model, S.effort[provider]),
-        ts: Date.now(), startedAt: performance.now(), elapsed: 0, ended: false, error: false, aborted: false, notes: [], url: URL.createObjectURL(shot.blob), timer: 0 };
+      var cur = { acc: acc, model: model, shots: shots, userText: els.userText.value.trim(), system: S.systemPrompt.trim(), effort: C.effectiveEffort(model, S.effort[provider]),
+        ts: Date.now(), startedAt: performance.now(), elapsed: 0, ended: false, error: false, aborted: false, notes: [], timer: 0 };
       state.cur = cur;
-      els.curThumb.src = cur.url;
+      if (prev) releaseShots(prev.shots);
+      renderCurThumbs(cur);
       els.current.hidden = false;
       els.curThinking.open = false;
       els.curThinkingBody.textContent = '';
@@ -1513,9 +1566,10 @@ dialog::backdrop { background: rgba(0, 0, 0, .5); }
       renderCurrent();
       cur.timer = setInterval(renderStatus, 200);
 
-      return blobToBase64(shot.blob).then(function (b64) {
+      return Promise.all(shots.map(function (s) { return blobToBase64(s.blob); })).then(function (b64s) {
         var build = provider === 'claude' ? C.buildClaudeRequest : C.buildGeminiRequest;
-        var req = build({ model: model, apiKey: apiKey, system: cur.system, userText: cur.userText, imageB64: b64, mime: shot.blob.type, effort: S.effort[provider] });
+        var images = shots.map(function (s, i) { return { b64: b64s[i], mime: s.blob.type }; });
+        var req = build({ model: model, apiKey: apiKey, system: cur.system, userText: cur.userText, images: images, effort: S.effort[provider] });
         return streamRequest(req, acc, provider, ac.signal, queueRender);
       }).then(function () {
         if (acc.state.error) throw new Error(C.streamErrorMessage(acc.state.error));
@@ -1527,6 +1581,8 @@ dialog::backdrop { background: rgba(0, 0, 0, .5); }
         cur.ended = true;
         cur.elapsed = performance.now() - cur.startedAt;
         clearInterval(cur.timer); cur.timer = 0;
+        /* 送れたら、ためた分は空にする。失敗や中止のときは残して、そのまま送り直せるようにする。 */
+        if (queued && !cur.error && !cur.aborted) { state.queue = []; renderQueue(); }
         if (state.cur === cur) { renderCurrent(); renderNotes(els.curNotes, cur.notes); }
         if (!cur.error && !cur.aborted && S.keepHistory) return saveToHistory(cur);
       });
@@ -1571,10 +1627,11 @@ dialog::backdrop { background: rgba(0, 0, 0, .5); }
       });
     }
     return {
-      add: function (entry, bytes) {
+      /* images の中身は { list: [{ bytes, type }, …] }。以前の版が保存した { bytes, type }（1 枚だけ）も読めるようにしてある。 */
+      add: function (entry, images) {
         return run(['entries', 'images'], 'readwrite', function (tx, set) {
           var r = tx.objectStore('entries').add(entry);
-          r.onsuccess = function () { set(r.result); tx.objectStore('images').put({ bytes: bytes, type: entry.imageType }, r.result); };
+          r.onsuccess = function () { set(r.result); tx.objectStore('images').put(images, r.result); };
         });
       },
       list: function (limit, beforeId) {
@@ -1605,13 +1662,19 @@ dialog::backdrop { background: rgba(0, 0, 0, .5); }
     els.bigImage.src = url;
     if (!els.imageDialog.open) els.imageDialog.showModal();
   }
-  function showStoredImage(id) {
+  function showStoredImage(id, index) {
     DB.image(id).then(function (rec) {
-      if (!rec || !rec.bytes) { flash('この履歴の画像は見つかりませんでした。', true); return; }
-      var url = URL.createObjectURL(new Blob([rec.bytes], { type: rec.type || 'image/png' }));
+      var list = rec ? (Array.isArray(rec.list) ? rec.list : rec.bytes ? [rec] : []) : [];
+      var item = list[index || 0];
+      if (!item || !item.bytes) { flash('この履歴の画像は見つかりませんでした。', true); return; }
+      var url = URL.createObjectURL(new Blob([item.bytes], { type: item.type || 'image/png' }));
       showImage(url);
       state.bigUrl = url;
     }, function (err) { flash('画像を開けませんでした：' + String(err && err.message || err), true); });
+  }
+  function thumbsOf(entry) {
+    var list = Array.isArray(entry.thumbs) && entry.thumbs.length ? entry.thumbs : [entry.thumb];
+    return list.filter(function (t) { return typeof t === 'string' && t.indexOf('data:image/') === 0; });
   }
   function fillHistBody(body, entry, details) {
     var meta = [entry.modelLabel || entry.modelId];
@@ -1620,8 +1683,19 @@ dialog::backdrop { background: rgba(0, 0, 0, .5); }
     if (entry.secs != null) meta.push(entry.secs + ' 秒');
     var u = usageText(entry.usage);
     if (u) meta.push(u);
-    if (entry.w && entry.h) meta.push('画像 ' + entry.w + ' × ' + entry.h + ' px');
+    var thumbs = thumbsOf(entry);
+    if (thumbs.length > 1) meta.push('画像 ' + thumbs.length + ' 枚');
+    else if (entry.w && entry.h) meta.push('画像 ' + entry.w + ' × ' + entry.h + ' px');
     body.appendChild(el('div', 'small-meta', meta.join(' ・ ')));
+    var strip = el('div', 'thumbs');
+    thumbs.forEach(function (t, i) {
+      var im = el('img', 'thumb sm');
+      im.alt = '送った画像' + (thumbs.length > 1 ? ' ' + (i + 1) : '') + '（クリックで拡大）';
+      im.src = t;
+      im.addEventListener('click', function () { showStoredImage(entry.id, i); });
+      strip.appendChild(im);
+    });
+    if (thumbs.length) body.appendChild(strip);
     if (entry.userText) body.appendChild(el('div', 'small-meta', '追加の指示：' + entry.userText));
     if (entry.notes && entry.notes.length) { var nb = el('div'); renderNotes(nb, entry.notes); body.appendChild(nb); }
     var md = el('div', 'md');
@@ -1636,8 +1710,6 @@ dialog::backdrop { background: rgba(0, 0, 0, .5); }
     var row = el('div', 'row');
     var copy = el('button', 'btn small', '回答をコピー'); copy.type = 'button';
     copy.addEventListener('click', function () { copyText(entry.answer || '', copy); });
-    var img = el('button', 'btn small', '画像を開く'); img.type = 'button';
-    img.addEventListener('click', function () { showStoredImage(entry.id); });
     var del = el('button', 'btn small danger', 'この履歴を消す'); del.type = 'button';
     armConfirm(del, 'もう一度押すと消えます', function () {
       DB.remove(entry.id).then(function () {
@@ -1646,15 +1718,19 @@ dialog::backdrop { background: rgba(0, 0, 0, .5); }
         updateHistoryHead();
       }, function (err) { flash('消せませんでした：' + String(err && err.message || err), true); });
     });
-    row.appendChild(copy); row.appendChild(img); row.appendChild(del);
+    row.appendChild(copy); row.appendChild(del);
     body.appendChild(row);
   }
   function histElement(entry) {
     var d = el('details', 'card hist');
     var s = el('summary');
+    var thumbs = thumbsOf(entry);
+    var box = el('span', 'hist-thumb');
     var img = el('img', 'thumb sm'); img.alt = '';
-    if (typeof entry.thumb === 'string' && entry.thumb.indexOf('data:image/') === 0) img.src = entry.thumb;
-    s.appendChild(img);
+    if (thumbs.length) img.src = thumbs[0];
+    box.appendChild(img);
+    if (thumbs.length > 1) box.appendChild(el('span', 'badge', thumbs.length + '枚'));
+    s.appendChild(box);
     s.appendChild(el('span', 'snippet', snippetOf(entry.answer)));
     var when = el('span', 'when');
     when.appendChild(document.createTextNode(whenFmt.format(new Date(entry.ts))));
@@ -1693,8 +1769,10 @@ dialog::backdrop { background: rgba(0, 0, 0, .5); }
     var st = cur.acc.state, provider = cur.model.provider;
     var entry = { ts: cur.ts, provider: provider, modelId: cur.model.id, modelLabel: cur.model.label, servedBy: C.servedBy(provider, st), effort: cur.effort,
       userText: cur.userText, system: cur.system, answer: st.text, notes: cur.notes, usage: st.usage, secs: Math.round(cur.elapsed / 100) / 10,
-      w: cur.shot.w, h: cur.shot.h, thumb: cur.shot.thumb, imageType: cur.shot.blob.type };
-    return cur.shot.blob.arrayBuffer().then(function (buf) { return DB.add(entry, buf); }).then(function (id) {
+      w: cur.shots[0].w, h: cur.shots[0].h, thumb: cur.shots[0].thumb, thumbs: cur.shots.map(function (s) { return s.thumb; }), imageType: cur.shots[0].blob.type };
+    return Promise.all(cur.shots.map(function (s) {
+      return s.blob.arrayBuffer().then(function (buf) { return { bytes: buf, type: s.blob.type }; });
+    })).then(function (list) { return DB.add(entry, { list: list }); }).then(function (id) {
       entry.id = id;
       els.historyList.insertBefore(histElement(entry), els.historyList.firstChild);
       state.hist.total++; state.hist.ok = true;
@@ -1735,30 +1813,10 @@ dialog::backdrop { background: rgba(0, 0, 0, .5); }
   els.selLayer.addEventListener('pointermove', onPointerMove);
   els.selLayer.addEventListener('pointerup', onPointerUp);
   els.selLayer.addEventListener('pointercancel', onPointerUp);
-  els.fullBtn.addEventListener('click', function () { setRegion(null, false); });
+  els.fullBtn.addEventListener('click', function () { setRegion(null); });
 
-  els.presetSelect.addEventListener('change', function () {
-    var i = els.presetSelect.value === '' ? -1 : +els.presetSelect.value;
-    state.presetIdx = S.presets[i] ? i : -1;
-    if (state.presetIdx !== -1) setRegion(S.presets[i].region, true);
-    renderPresets();
-  });
-  els.presetSaveBtn.addEventListener('click', function () {
-    if (!S.region) { flash('映像の上をドラッグして範囲を決めてから、保存してください。', true); return; }
-    showPresetForm(els.presetForm.hidden);
-  });
-  els.presetOk.addEventListener('click', savePreset);
-  els.presetCancel.addEventListener('click', function () { showPresetForm(false); });
-  els.presetName.addEventListener('keydown', function (e) {
-    if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); savePreset(); }
-    else if (e.key === 'Escape') { e.preventDefault(); showPresetForm(false); }
-  });
-  armConfirm(els.presetDeleteBtn, 'もう一度押すと消えます', function () {
-    if (state.presetIdx === -1) return;
-    S.presets.splice(state.presetIdx, 1);
-    state.presetIdx = -1;
-    renderPresets(); saveSettings();
-  });
+  els.holdBtn.addEventListener('click', hold);
+  els.queueClear.addEventListener('click', function () { if (!state.busy) clearQueue(); });
 
   els.userText.value = S.userText;
   els.userText.addEventListener('input', function () { S.userText = els.userText.value; saveSettings(); });
@@ -1804,7 +1862,6 @@ dialog::backdrop { background: rgba(0, 0, 0, .5); }
   });
   els.keepHistory.addEventListener('change', function () { S.keepHistory = els.keepHistory.checked; saveSettings(); updateHistoryHead(); });
 
-  els.curThumb.addEventListener('click', function () { if (state.cur) showImage(state.cur.url); });
   els.curCopy.addEventListener('click', function () { if (state.cur) copyText(state.cur.acc.state.text, els.curCopy); });
   els.curThinking.addEventListener('toggle', function () { if (els.curThinking.open) renderCurrent(); });
   els.closeImage.addEventListener('click', function () { els.imageDialog.close(); });
@@ -1831,7 +1888,7 @@ dialog::backdrop { background: rgba(0, 0, 0, .5); }
   /* ---------- 起動 ---------- */
   populateModels();
   populateEffort();
-  renderPresets();
+  renderQueue();
   updateBanner();
   updateShareUi();
   loadHistory(false);

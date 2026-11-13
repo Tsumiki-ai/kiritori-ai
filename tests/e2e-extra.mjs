@@ -114,7 +114,7 @@ try {
   }
   async function sendAndWait(prefix) {
     await click('sendBtn');
-    return waitFor(`document.getElementById('curStatus').textContent.startsWith(${JSON.stringify(prefix)}) && document.getElementById('sendBtn').textContent === 'この範囲を AI に送る'`, '送信 → ' + prefix);
+    return waitFor(`document.getElementById('curStatus').textContent.startsWith(${JSON.stringify(prefix)}) && document.getElementById('sendBtn').textContent === '送信'`, '送信 → ' + prefix);
   }
 
   // ---- 1. 起動時: キーはあるが一覧が未取得 → 裏で取得 ----
@@ -154,7 +154,7 @@ try {
   await ev(`window.__mock.mode = 'ok'`);
   for (let i = 2; i <= 23; i++) {
     await click('sendBtn');
-    if (!(await waitFor(`document.getElementById('historyCount').textContent === '${i} 件' && document.getElementById('sendBtn').textContent === 'この範囲を AI に送る'`, `送信 ${i} 回目`))) break;
+    if (!(await waitFor(`document.getElementById('historyCount').textContent === '${i} 件' && document.getElementById('sendBtn').textContent === '送信'`, `送信 ${i} 回目`))) break;
   }
   check('4 23 件たまる（開いたままでも全部見える）', (await text('historyCount')) === '23 件' && await ev(`document.querySelectorAll('#historyList .hist').length === 23`));
   await sleep(400);
@@ -197,9 +197,24 @@ try {
   await click('curCopy'); await click('curCopy');
   await sleep(1900);
   check('6 コピーのボタンは連打しても表示が元に戻る', (await text('curCopy')) === 'コピー', await text('curCopy'));
-  await click('curThumb');
+  await ev(`document.querySelector('#curThumbs img').click()`);
   check('6 送った画像を拡大できる', await ev(`document.getElementById('imageDialog').open && document.getElementById('bigImage').src.startsWith('blob:')`));
   await click('closeImage');
+
+  // ---- 7. ためる: 枚数の上限と、共有を止めたあとの送信 ----
+  await ev(`window.__mock.noise = false`);
+  await click('shareBtn');
+  await waitFor(`document.getElementById('video').videoWidth === 1600`, '共有し直す', 15000);
+  for (let i = 1; i <= 8; i++) {
+    await click('holdBtn');
+    if (!(await waitFor(`document.querySelectorAll('#queueList .queue-item').length === ${i}`, `ためる ${i} 枚目`))) break;
+  }
+  check('7 8 枚たまると「ためる」は押せなくなる', await ev(`document.getElementById('holdBtn').disabled`) && (await text('sendBtn')) === '送信（8枚）', await text('sendBtn'));
+  await click('stopBtn');
+  check('7 共有を止めても、ためた分は送れる', await ev(`!document.getElementById('sendBtn').disabled && document.getElementById('holdBtn').disabled && document.querySelectorAll('#queueList .queue-item').length === 8`));
+  await sendAndWait('完了');
+  const many = await ev(`(() => { const c = window.__reqs[window.__reqs.length - 1].body.messages[0].content; return { images: c.filter((x) => x.type === 'image').length, text: (c.find((x) => x.type === 'text') || {}).text || '' }; })()`);
+  check('7 8 枚をまとめて送り、送ったあとは空に戻る', many.images === 8 && many.text.startsWith('画像は 8 枚あります。') && await ev(`document.getElementById('queueBox').hidden && document.getElementById('sendBtn').disabled && document.querySelectorAll('#curThumbs img').length === 8`), many);
 
   check('ページ内のエラーや警告なし', problems.length === 0, problems);
   exitCode = failed ? 1 : 0;

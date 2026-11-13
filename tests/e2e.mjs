@@ -297,7 +297,7 @@ try {
   check('E 送った画像は PNG で、範囲どおりの大きさ', img.magic.join() === '137,80,78,71' && near(img.w, 800, 8) && near(img.h, 450, 8), img);
   check('E 送った画像の四隅が、映像の中央 50% と一致（赤・緑・青・黄）', isColor(img.tl, [255, 0, 0]) && isColor(img.tr, [0, 255, 0]) && isColor(img.bl, [0, 0, 255]) && isColor(img.br, [255, 255, 0]), img);
   check('E 履歴に 1 件', (await text('historyCount')) === '1 件' && await ev(`document.querySelectorAll('#historyList .hist').length === 1`), await text('historyCount'));
-  check('E 送信後はボタンが元に戻る', await ev(`document.getElementById('sendBtn').textContent === 'この範囲を AI に送る' && !document.getElementById('sendBtn').disabled`));
+  check('E 送信後はボタンが元に戻る', await ev(`document.getElementById('sendBtn').textContent === '送信' && !document.getElementById('sendBtn').disabled`));
   await shot('04-answer-light');
 
   // ===== F. Gemini に送る =====
@@ -335,7 +335,7 @@ try {
   await click('sendBtn');
   await waitFor(`document.getElementById('curStatus').textContent.startsWith('エラー')`, 'エラー表示');
   check('G エラーの説明が出る', await ev(`(() => { const n = document.querySelector('#curNotes .note.error'); return !!n && n.textContent.includes('Claude の API キーが正しくない') && n.textContent.includes('invalid x-api-key'); })()`), await text('curNotes'));
-  check('G エラーは履歴に残さない・ボタンは戻る', (await text('historyCount')) === '2 件' && await ev(`document.getElementById('sendBtn').textContent === 'この範囲を AI に送る' && !document.getElementById('sendBtn').disabled`));
+  check('G エラーは履歴に残さない・ボタンは戻る', (await text('historyCount')) === '2 件' && await ev(`document.getElementById('sendBtn').textContent === '送信' && !document.getElementById('sendBtn').disabled`));
   const freq = await lastReq('https://api.anthropic.com/v1/messages');
   check('G 追加の指示が空なら画像だけ送る（Fable）', freq.body.model === 'claude-fable-5-2' && freq.body.messages[0].content.length === 1 && freq.body.fallbacks === 'default' && freq.body.output_config.effort === 'high');
 
@@ -361,16 +361,49 @@ try {
   check('I 対応していない指定は送らない（Haiku 4.5）', hreq.body.model === 'claude-haiku-4-5-20251001' && !('thinking' in hreq.body) && !('output_config' in hreq.body) && !('fallbacks' in hreq.body) && !('anthropic-beta' in hreq.headers) && hreq.body.max_tokens === 64000, hreq.body && Object.keys(hreq.body));
   check('I 履歴は 4 件', (await text('historyCount')) === '4 件', await text('historyCount'));
 
-  // ===== J. 範囲の保存 =====
-  await click('presetSaveBtn');
-  check('J 名前の入力欄が出る', await ev(`!document.getElementById('presetForm').hidden && document.getElementById('presetName').value === '範囲 1'`));
-  await setInput('presetName', '中央');
-  await click('presetOk');
-  check('J 保存される', await ev(`document.getElementById('presetForm').hidden && document.getElementById('presetSelect').value === '0' && document.getElementById('presetSelect').options[1].textContent === '中央' && !document.getElementById('presetDeleteBtn').hidden`));
+  // ===== J. ためる（何枚か取っておいて、まとめて送る） =====
+  const queued = () => ev(`document.querySelectorAll('#queueList .queue-item').length`);
+  const holdOnce = async (n) => { await click('holdBtn'); await waitFor(`document.querySelectorAll('#queueList .queue-item').length === ${n}`, n + ' 枚目をためる'); };
+  check('J 範囲を名前で保存する機能はない', await ev(`!document.getElementById('presetSelect') && !document.getElementById('presetSaveBtn')`));
+  check('J ためる前は「送信」で、ためた画像の枠は出ない', await ev(`document.getElementById('sendBtn').textContent === '送信' && document.getElementById('queueBox').hidden && !document.getElementById('holdBtn').disabled`));
+  await holdOnce(1);
+  check('J 1 枚ためても表示は「送信」のまま', (await text('sendBtn')) === '送信' && (await text('queueInfo')).includes('ためた画像 1 枚'), [await text('sendBtn'), await text('queueInfo')]);
   await click('fullBtn');
-  check('J 全体に戻すと選択が外れる', await ev(`document.getElementById('presetSelect').value === '' && document.getElementById('sel').hidden`));
-  await setInput('presetSelect', '0', ['change']);
-  check('J 保存した範囲を呼び出せる', /^範囲 (79|80)\d × 4[45]\d px/.test(await text('regionInfo')) && await ev(`!document.getElementById('sel').hidden`), await text('regionInfo'));
+  await drag(0.05, 0.05, 0.45, 0.45); // 左上（赤）だけの範囲に変えて、2 枚目をためる
+  await holdOnce(2);
+  check('J 2 枚たまると「送信（2枚）」', (await text('sendBtn')) === '送信（2枚）' && (await text('queueInfo')).includes('この 2 枚だけを送ります'), [await text('sendBtn'), await text('queueInfo')]);
+  await shot('04b-queue-light');
+  await click('sendBtn');
+  await waitFor(`document.getElementById('curStatus').textContent.startsWith('完了') && document.getElementById('sendBtn').textContent === '送信'`, 'まとめて送信');
+  const qreq = await lastReq('https://api.anthropic.com/v1/messages');
+  const qc = qreq.body.messages[0].content;
+  check('J 2 枚を順番どおりに、1 つの質問として送る', qc.length === 3 && qc[0].type === 'image' && qc[1].type === 'image' && qc[2].type === 'text' && qc[2].text === '画像は 2 枚あります。1 枚目から順に続く、ひと続きの内容として読んでください。', qc.map((c) => c.type + (c.text ? ':' + c.text : '')));
+  const q1 = await inspectImage(qc[0].source.data, 'image/png'), q2 = await inspectImage(qc[1].source.data, 'image/png');
+  check('J 1 枚目は中央（4 色）、2 枚目は左上（赤だけ）', isColor(q1.tl, [255, 0, 0]) && isColor(q1.br, [255, 255, 0]) && isColor(q2.tl, [255, 0, 0]) && isColor(q2.br, [255, 0, 0]) && near(q2.w, 640, 10), { q1, q2 });
+  check('J 送れたら、ためた分は空になる', (await queued()) === 0 && await ev(`document.getElementById('queueBox').hidden`));
+  check('J 送った 2 枚が回答の横に並び、履歴にも 2 枚と出る', await ev(`document.querySelectorAll('#curThumbs img').length === 2 && document.querySelector('#historyList .hist .badge').textContent === '2枚'`) && (await text('historyCount')) === '5 件', await text('historyCount'));
+  await ev(`document.querySelectorAll('#curThumbs img')[1].click()`);
+  check('J 回答の横の画像を押すと拡大できる', await ev(`document.getElementById('imageDialog').open && document.getElementById('bigImage').src.startsWith('blob:')`));
+  await click('closeImage');
+  // 1 枚ずつ消す・全部消す
+  await holdOnce(1); await holdOnce(2);
+  await ev(`document.querySelector('#queueList .queue-item .x').click()`);
+  check('J × で 1 枚だけ消せる', (await queued()) === 1 && (await text('sendBtn')) === '送信');
+  await click('queueClear');
+  check('J 「全部消す」で空になる', (await queued()) === 0 && await ev(`document.getElementById('queueBox').hidden`) && (await text('sendBtn')) === '送信');
+  // 送信に失敗したときは、ためた分を残して送り直せる
+  await holdOnce(1); await holdOnce(2);
+  await ev(`window.__mock.mode = 'http401'`);
+  await click('sendBtn');
+  await waitFor(`document.getElementById('curStatus').textContent.startsWith('エラー') && document.getElementById('sendBtn').textContent === '送信（2枚）'`, '送信の失敗');
+  check('J 失敗したら、ためた 2 枚は残る', (await queued()) === 2 && (await text('historyCount')) === '5 件');
+  await ev(`window.__mock.mode = 'ok'`);
+  await click('sendBtn');
+  await waitFor(`document.getElementById('curStatus').textContent.startsWith('完了') && document.getElementById('sendBtn').textContent === '送信'`, '送り直し');
+  check('J そのまま送り直せる', (await queued()) === 0 && (await text('historyCount')) === '6 件', await text('historyCount'));
+  await click('fullBtn');
+  await drag(0.25, 0.25, 0.75, 0.75); // 範囲を元（中央）に戻す
+  check('J 範囲を中央に戻した', /^範囲 (79|80)\d × 4[45]\d px/.test(await text('regionInfo')), await text('regionInfo'));
 
   // ===== K. 表示（暗いテーマ・狭い画面・大きく表示） =====
   await S('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: 'dark' }] });
@@ -403,26 +436,35 @@ try {
   await waitFor(`window.__reqs.some((q) => q.url.startsWith('https://api.anthropic.com/v1/models'))`, '古い一覧の自動更新');
   check('M 一覧が古いほうだけ裏で取り直す', await ev(`window.__reqs.filter((q) => q.url.includes('/models')).length === 1`), await ev(`window.__reqs.map((q) => q.url)`));
   st = await stored();
-  check('M 設定が残る', st.keys.claude === 'sk-ant-test-key' && st.keys.gemini === 'AIza-test-key' && st.model === 'claude-haiku-4-5-20251001' && st.systemPrompt === 'テスト用のシステムプロンプト\n二行目' && st.effort.gemini === 'low' && st.presets.length === 1 && st.region && near(st.region.x, 0.25, 0.01), st && { model: st.model, effort: st.effort, presets: st.presets, region: st.region });
+  check('M 設定が残る', st.keys.claude === 'sk-ant-test-key' && st.keys.gemini === 'AIza-test-key' && st.model === 'claude-haiku-4-5-20251001' && st.systemPrompt === 'テスト用のシステムプロンプト\n二行目' && st.effort.gemini === 'low' && !('presets' in st) && st.region && near(st.region.x, 0.25, 0.01), st && { model: st.model, effort: st.effort, region: st.region });
   check('M モデル一覧と選択が残る', await ev(`document.getElementById('modelSelect').value === 'claude-haiku-4-5-20251001' && document.querySelectorAll('#modelSelect option').length === 5`));
-  await waitFor(`document.querySelectorAll('#historyList .hist').length === 4`, '履歴の読み込み');
-  check('M 履歴が残る・案内は出ない・お知らせも出ない', (await text('historyCount')) === '4 件' && await ev(`document.getElementById('guide').hidden && document.getElementById('banner').hidden`));
-  await ev(`document.querySelectorAll('#historyList .hist')[3].open = true`);
-  await waitFor(`!!document.querySelectorAll('#historyList .hist')[3].querySelector('.body')`, '履歴を開く');
-  const hb = await ev(`document.querySelectorAll('#historyList .hist')[3].querySelector('.body').innerHTML`);
-  check('M 履歴の中身（最初の Claude の回答）', hb.includes('<strong>42</strong>') && hb.includes('Claude Opus 5.5') && hb.includes('追加の指示：テスト指示') && hb.includes('思考の深さ：high') && hb.includes('テスト用のシステムプロンプト') && !/<script|<img/i.test(hb), hb.slice(0, 400));
-  await ev(`Array.from(document.querySelectorAll('#historyList .hist')[3].querySelectorAll('button')).find((b) => b.textContent === '画像を開く').click()`);
+  await waitFor(`document.querySelectorAll('#historyList .hist').length === 6`, '履歴の読み込み');
+  check('M 履歴が残る・案内は出ない・お知らせも出ない', (await text('historyCount')) === '6 件' && await ev(`document.getElementById('guide').hidden && document.getElementById('banner').hidden`));
+  // いちばん古い 1 件（最初の Claude の回答・画像 1 枚）
+  await ev(`document.querySelectorAll('#historyList .hist')[5].open = true`);
+  await waitFor(`!!document.querySelectorAll('#historyList .hist')[5].querySelector('.body')`, '履歴を開く');
+  const hb = await ev(`(() => { const b = document.querySelectorAll('#historyList .hist')[5].querySelector('.body'); return { answer: b.querySelector('.md').innerHTML, text: b.textContent, thumbs: b.querySelectorAll('.thumbs img').length }; })()`);
+  check('M 履歴の中身（最初の Claude の回答）', hb.answer.includes('<strong>42</strong>') && !/<script|<img/i.test(hb.answer) && hb.text.includes('Claude Opus 5.5') && hb.text.includes('追加の指示：テスト指示') && hb.text.includes('思考の深さ：high') && hb.text.includes('テスト用のシステムプロンプト') && hb.thumbs === 1, hb);
+  await ev(`document.querySelectorAll('#historyList .hist')[5].querySelector('.body .thumbs img').click()`);
   await waitFor(`document.getElementById('imageDialog').open && document.getElementById('bigImage').naturalWidth > 700`, '履歴の画像を開く');
   check('M 保存された画像を開ける', await ev(`document.getElementById('bigImage').src.startsWith('blob:')`));
   await shot('08-history-image');
   await click('closeImage');
+  // 2 枚まとめて送った 1 件（上から 2 番目）は、2 枚とも保存されていて、2 枚目（赤だけ）も開ける
+  await ev(`document.querySelectorAll('#historyList .hist')[1].open = true`);
+  await waitFor(`document.querySelectorAll('#historyList .hist')[1].querySelectorAll('.body .thumbs img').length === 2`, '2 枚の履歴を開く');
+  check('M 2 枚の履歴に「画像 2 枚」と出る', await ev(`document.querySelectorAll('#historyList .hist')[1].querySelector('.body .small-meta').textContent.includes('画像 2 枚')`));
+  await ev(`document.querySelectorAll('#historyList .hist')[1].querySelectorAll('.body .thumbs img')[1].click()`);
+  await waitFor(`document.getElementById('imageDialog').open && document.getElementById('bigImage').naturalWidth > 500`, '履歴の 2 枚目を開く');
+  check('M 履歴の 2 枚目は左上（赤だけ）の画像', await ev(`(() => { const im = document.getElementById('bigImage'); const c = document.createElement('canvas'); c.width = im.naturalWidth; c.height = im.naturalHeight; const g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(im, 0, 0); const a = g.getImageData(8, 8, 1, 1).data, b = g.getImageData(c.width - 9, c.height - 9, 1, 1).data; return a[0] > 200 && a[1] < 60 && b[0] > 200 && b[1] < 60 && Math.abs(c.width - 640) < 12; })()`));
+  await click('closeImage');
   // 1 件消す（2 回押し）
-  const delBtn = `Array.from(document.querySelectorAll('#historyList .hist')[3].querySelectorAll('button')).find((b) => b.classList.contains('danger'))`;
+  const delBtn = `Array.from(document.querySelectorAll('#historyList .hist')[5].querySelectorAll('button')).find((b) => b.classList.contains('danger'))`;
   await ev(`${delBtn}.click()`);
-  check('M 1 回目は確認になる', (await ev(`${delBtn}.textContent`)) === 'もう一度押すと消えます' && (await text('historyCount')) === '4 件');
+  check('M 1 回目は確認になる', (await ev(`${delBtn}.textContent`)) === 'もう一度押すと消えます' && (await text('historyCount')) === '6 件');
   await ev(`${delBtn}.click()`);
-  await waitFor(`document.querySelectorAll('#historyList .hist').length === 3`, '履歴を 1 件消す');
-  check('M 1 件消える', (await text('historyCount')) === '3 件');
+  await waitFor(`document.querySelectorAll('#historyList .hist').length === 5`, '履歴を 1 件消す');
+  check('M 1 件消える', (await text('historyCount')) === '5 件');
   await click('clearHistoryBtn'); await click('clearHistoryBtn');
   await waitFor(`document.querySelectorAll('#historyList .hist').length === 0`, '履歴をすべて消す');
   check('M すべて消える・案内が戻る', (await text('historyCount')).includes('まだありません') && await ev(`document.getElementById('clearHistoryBtn').hidden && !document.getElementById('guide').hidden`));
