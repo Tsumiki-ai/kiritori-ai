@@ -198,6 +198,56 @@ label.lbl { display: block; font-size: 12.5px; color: var(--muted); margin-botto
 .md th, .md td { border: 1px solid var(--line); padding: 4px 10px; vertical-align: top; }
 .md th { background: var(--panel-2); font-weight: 600; }
 
+/* 数式。AI が LaTeX 記法（$…$ や $$…$$）で書いた計算式を、分数や添字の形に組み立てて表示する。 */
+.math i { font-style: italic; }
+.math-display { display: block; margin: .45em 0; padding: .2em 0; overflow-x: auto; overflow-y: hidden; }
+.math sup, .math sub { font-size: .74em; line-height: 0; }
+.math .msupsub { display: inline-flex; flex-direction: column; vertical-align: middle; margin-left: .05em; font-size: .74em; line-height: 1.15; }
+.math .msupsub > sup, .math .msupsub > sub { font-size: 1em; line-height: inherit; }
+.math .mfrac { display: inline-flex; flex-direction: column; vertical-align: middle; margin: 0 .16em; font-size: .9em; line-height: 1.25; text-align: center; white-space: nowrap; }
+.math-display .mfrac, .math .mfrac.big { font-size: 1em; }
+.math .mfrac .mfrac, .math sup .mfrac, .math sub .mfrac { font-size: .9em; }
+.math .mfrac > .num { padding: 0 .28em .1em; border-bottom: 1px solid currentColor; }
+.math .mfrac > .den { padding: .1em .28em 0; }
+.math .mfrac.nobar > .num { border-bottom: 0; }
+/* 根号: 左の「∨」の形を 2 本の斜めの線で描き、中身の上の線（border-top）につなげる。中身の高さに合わせて伸びる。 */
+.math .msqrt { display: inline-flex; margin: 0 .08em; white-space: nowrap; }
+.math .msqrt > .ridx { align-self: flex-start; margin-right: -.36em; font-size: .62em; line-height: 1.2; }
+.math .msqrt > .rad {
+  flex: none; width: .62em;
+  background:
+    linear-gradient(to top right, transparent calc(50% - 1.1px), currentColor calc(50% - .55px), currentColor calc(50% + .55px), transparent calc(50% + 1.1px)) left bottom / 42% 46% no-repeat,
+    linear-gradient(to bottom right, transparent calc(50% - .9px), currentColor calc(50% - .4px), currentColor calc(50% + .4px), transparent calc(50% + .9px)) right top / 62% 100% no-repeat;
+}
+.math .msqrt > .rad > .g { font-size: 0; }
+.math .msqrt > .radicand { align-self: baseline; border-top: 1px solid currentColor; padding: .08em .12em 0 .08em; line-height: 1.05; }
+.math .mlr { white-space: nowrap; }
+.math .mdelim { display: inline-block; }
+.math .mdelim.tall { vertical-align: middle; margin: 0 .1em; }
+.math .mbig { font-size: 1.35em; line-height: 1; vertical-align: -.12em; }
+.math .mop { display: inline-flex; flex-direction: column; align-items: center; vertical-align: middle; margin: 0 .12em; line-height: 1.2; }
+.math .mop > .lim { font-size: .74em; }
+.math .mop .mbig { vertical-align: baseline; }
+.math .mtable { display: inline-table; vertical-align: middle; border-collapse: collapse; }
+.math .mtr { display: table-row; }
+.math .mtd { display: table-cell; padding: .1em 0; text-align: center; white-space: nowrap; }
+.math .mtd.l { text-align: left; }
+.math .mtd.r { text-align: right; }
+.math .mtable.al .mtd.l { padding-left: .28em; }
+.math .mtable.al .mtd.l + .mtd.r { padding-left: 2em; }
+.math .mtable.mx .mtd + .mtd { padding-left: 1.1em; }
+.math .mtr.hl > .mtd { border-top: 1px solid currentColor; }
+.math .mtr.hlb > .mtd { border-bottom: 1px solid currentColor; }
+.math .mboxed { display: inline-block; border: 1px solid currentColor; border-radius: 3px; padding: 0 .35em; }
+.math .mover { display: inline-block; border-top: 1px solid currentColor; padding-top: .04em; line-height: 1.05; }
+.math .munder { border-bottom: 1px solid currentColor; }
+.math .mcancel { text-decoration: line-through; }
+.math .mphantom { visibility: hidden; }
+.math .mtag { margin-left: 2em; }
+.math .mstack { display: inline-flex; flex-direction: column; align-items: center; line-height: 1.15; }
+.math .mstack.over { flex-direction: column-reverse; }
+.math .mstack > .sm { font-size: .72em; }
+
 .guide { padding: 18px 20px; }
 .guide h2 { font-size: 14px; margin-bottom: 8px; }
 .guide ol { margin: 0; padding-left: 1.5em; display: flex; flex-direction: column; gap: 6px; }
@@ -419,10 +469,11 @@ dialog::backdrop { background: rgba(0, 0, 0, .5); }
 
   function inlineText(s) {
     var t = escapeHtml(s);
-    t = t.replace(/\\([*_~`\[\]()#|\\])/g, function (m, ch) { return '&#' + ch.charCodeAt(0) + ';'; });
+    t = t.replace(/\\([*_~`\[\]()#|\\$])/g, function (m, ch) { return '&#' + ch.charCodeAt(0) + ';'; });
     t = t.replace(/&lt;br\s*\/?&gt;/gi, '<br>');
     t = t.replace(/&lt;(\/?)(sub|sup)&gt;/gi, function (m, slash, tag) { return '<' + slash + tag.toLowerCase() + '>'; });
-    t = t.replace(/\[([^\[\]\n]+)\]\((https?:\/\/[^\s()<>]+(?:\([^\s()<>]*\)[^\s()<>]*)*)\)/g, function (m, text, url) {
+    /* URL には数式の目印（ と ）を含めない。目印はあとで HTML に置き換わるので、属性の中に入れないため。 */
+    t = t.replace(/\[([^\[\]\n]+)\]\((https?:\/\/[^\s()<>]+(?:\([^\s()<>]*\)[^\s()<>]*)*)\)/g, function (m, text, url) {
       return '<a href="' + url + '" target="_blank" rel="noopener noreferrer">' + text + '</a>';
     });
     t = t.replace(/\*\*(?=\S)([\s\S]*?\S)\*\*/g, '<strong>$1</strong>');
@@ -531,6 +582,9 @@ dialog::backdrop { background: rgba(0, 0, 0, .5); }
     return { html: buildList(items), next: i };
   }
 
+  function fenceCloser(m) {
+    return new RegExp('^\\s{0,3}' + (m[1].charAt(0) === '`' ? '`' : '~') + '{' + m[1].length + ',}\\s*$');
+  }
   function renderBlocks(lines, depth) {
     var out = [], para = [], i = 0, m;
     function flush() {
@@ -540,7 +594,7 @@ dialog::backdrop { background: rgba(0, 0, 0, .5); }
       var line = lines[i];
       if ((m = FENCE_RE.exec(line))) {
         flush();
-        var close = new RegExp('^\\s{0,3}' + (m[1].charAt(0) === '`' ? '`' : '~') + '{' + m[1].length + ',}\\s*$');
+        var close = fenceCloser(m);
         var buf = []; i++;
         while (i < lines.length && !close.test(lines[i])) { buf.push(lines[i]); i++; }
         i++;
@@ -584,8 +638,545 @@ dialog::backdrop { background: rgba(0, 0, 0, .5); }
     flush();
     return out.join('\n');
   }
-  function renderMarkdown(src) {
-    return renderBlocks(String(src == null ? '' : src).replace(/\r\n?/g, '\n').split('\n'), 0);
+  /* ---------- 数式（LaTeX 記法）→ HTML ----------
+   * AI は計算の過程を $…$ や $$…$$ で囲んだ LaTeX 記法で書くことが多い。外部のライブラリは読み込まない方針なので、
+   * 計算の説明に出てくる範囲（分数・根号・添字・記号・文字・行をそろえる書き方）を自前で組み立てる。
+   * 知らない命令は消さずにそのまま文字で出す。ここでも文字はすべてエスケープし、こちらで決めたタグだけを使う。 */
+  var M_REL = {
+    le: '≤', leq: '≤', leqq: '≦', leqslant: '≤', ge: '≥', geq: '≥', geqq: '≧', geqslant: '≥', ne: '≠', neq: '≠',
+    approx: '≈', fallingdotseq: '≒', risingdotseq: '≓', simeq: '≃', sim: '∼', cong: '≅', equiv: '≡', propto: '∝', doteq: '≐',
+    ll: '≪', gg: '≫', lt: '&lt;', gt: '&gt;', 'in': '∈', ni: '∋', notin: '∉', subset: '⊂', supset: '⊃', subseteq: '⊆', supseteq: '⊇',
+    perp: '⊥', parallel: '∥', mid: '|', to: '→', rightarrow: '→', longrightarrow: '→', leftarrow: '←', gets: '←', longleftarrow: '←',
+    leftrightarrow: '↔', longleftrightarrow: '↔', Rightarrow: '⇒', Longrightarrow: '⇒', implies: '⇒', Leftarrow: '⇐', Longleftarrow: '⇐', impliedby: '⇐',
+    Leftrightarrow: '⇔', Longleftrightarrow: '⇔', iff: '⇔', mapsto: '↦', uparrow: '↑', downarrow: '↓', nearrow: '↗', searrow: '↘',
+    therefore: '∴', because: '∵', vdash: '⊢', models: '⊨', prec: '≺', succ: '≻', colon: ':'
+  };
+  var M_BIN = {
+    times: '×', div: '÷', cdot: '·', ast: '∗', star: '⋆', circ: '∘', bullet: '•', oplus: '⊕', ominus: '⊖', otimes: '⊗',
+    cup: '∪', cap: '∩', setminus: '∖', land: '∧', wedge: '∧', lor: '∨', vee: '∨', bmod: 'mod', mod: 'mod'
+  };
+  var M_ORD = {
+    infty: '∞', partial: '∂', nabla: '∇', forall: '∀', exists: '∃', nexists: '∄', emptyset: '∅', varnothing: '∅', neg: '¬', lnot: '¬',
+    angle: '∠', triangle: '△', square: '□', Box: '□', blacksquare: '■', degree: '°', prime: '′', ell: 'ℓ', hbar: 'ℏ', Re: 'ℜ', Im: 'ℑ', aleph: 'ℵ',
+    dots: '…', ldots: '…', dotsc: '…', dotso: '…', cdots: '⋯', dotsb: '⋯', dotsm: '⋯', vdots: '⋮', ddots: '⋱',
+    yen: '¥', pounds: '£', euro: '€', dag: '†', ddag: '‡', checkmark: '✓', top: '⊤', bot: '⊥', backslash: '\\',
+    langle: '⟨', rangle: '⟩', lfloor: '⌊', rfloor: '⌋', lceil: '⌈', rceil: '⌉', lbrace: '{', rbrace: '}', lbrack: '[', rbrack: ']',
+    vert: '|', lvert: '|', rvert: '|', Vert: '‖', lVert: '‖', rVert: '‖',
+    alpha: 'α', beta: 'β', gamma: 'γ', delta: 'δ', epsilon: 'ε', varepsilon: 'ε', zeta: 'ζ', eta: 'η', theta: 'θ', vartheta: 'ϑ', iota: 'ι', kappa: 'κ',
+    lambda: 'λ', mu: 'μ', nu: 'ν', xi: 'ξ', omicron: 'ο', pi: 'π', varpi: 'ϖ', rho: 'ρ', varrho: 'ϱ', sigma: 'σ', varsigma: 'ς', tau: 'τ', upsilon: 'υ',
+    phi: 'φ', varphi: 'φ', chi: 'χ', psi: 'ψ', omega: 'ω', Gamma: 'Γ', Delta: 'Δ', Theta: 'Θ', Lambda: 'Λ', Xi: 'Ξ', Pi: 'Π', Sigma: 'Σ', Upsilon: 'Υ',
+    Phi: 'Φ', Psi: 'Ψ', Omega: 'Ω'
+  };
+  var M_BIG = { sum: '∑', prod: '∏', coprod: '∐', bigcup: '⋃', bigcap: '⋂', bigoplus: '⊕', bigotimes: '⊗', bigvee: '⋁', bigwedge: '⋀', 'int': '∫', iint: '∬', iiint: '∭', oint: '∮' };
+  /* 関数の名前。2 は、1 行で大きく書く数式のときに添字を真下に置くもの。 */
+  var M_FN = {
+    sin: 1, cos: 1, tan: 1, cot: 1, sec: 1, csc: 1, arcsin: 1, arccos: 1, arctan: 1, sinh: 1, cosh: 1, tanh: 1, log: 1, ln: 1, lg: 1, exp: 1, deg: 1, dim: 1, ker: 1, arg: 1,
+    lim: 2, limsup: 2, liminf: 2, max: 2, min: 2, sup: 2, inf: 2, det: 2, gcd: 2, Pr: 2
+  };
+  var M_SPACE = { quad: ' ', qquad: '  ', enspace: ' ', enskip: ' ', thinspace: ' ', medspace: ' ', thickspace: ' ', space: ' ', nobreakspace: ' ', negthinspace: '', negmedspace: '', negthickspace: '' };
+  var M_ACCENT = { hat: '̂', widehat: '̂', tilde: '̃', widetilde: '̃', vec: '⃗', dot: '̇', ddot: '̈', check: '̌', breve: '̆', acute: '́', grave: '̀', bar: '̄', overline: '̄' };
+  /* 見た目の大きさや位置を指定するだけの命令。読み飛ばす。 */
+  var M_DROP = {};
+  ('displaystyle textstyle scriptstyle scriptscriptstyle limits nolimits nonumber notag hline toprule midrule bottomrule big Big bigg Bigg bigl bigr bigm Bigl Bigr Bigm ' +
+    'biggl biggr biggm Biggl Biggr Biggm middle mathstrut strut allowbreak nobreak relax mathopen mathclose mathrel mathbin mathord mathpunct mathinner mathop ensuremath ' +
+    'normalsize small footnotesize scriptsize tiny large Large LARGE huge Huge bf it rm sf tt cal centering protect noindent').split(' ').forEach(function (k) { M_DROP[k] = 1; });
+  /* { … } を 1 つ取る命令のうち、中身ごと読み飛ばすもの（値は代わりに出す文字）。 */
+  var M_SKIP = { hspace: ' ', vspace: '', kern: '', mkern: '', mspace: ' ', hskip: ' ', label: '', color: '', vphantom: '', ref: '', eqref: '', cline: '' };
+  var M_TEXT_FONT = { text: 1, textrm: 1, textnormal: 1, textup: 1, textsf: 1, texttt: 1, textbf: 1, textit: 1, emph: 1, mbox: 1, hbox: 1, mathrm: 1, mathbf: 1, mathit: 1, bf: 1, it: 1, rm: 1 };
+  var M_TEXT_SP = { ',': ' ', ';': ' ', ':': ' ', '>': ' ', ' ': ' ', '\n': ' ', '\t': ' ', '\\': ' ', '!': '' };
+  /* 行や列を並べる書き方。値は左右に付ける括弧。 */
+  var M_MATRIX = { matrix: ['', ''], smallmatrix: ['', ''], pmatrix: ['(', ')'], bmatrix: ['[', ']'], Bmatrix: ['{', '}'], vmatrix: ['|', '|'], Vmatrix: ['‖', '‖'], cases: ['{', ''], dcases: ['{', ''], rcases: ['', '}'] };
+  var M_ALIGNED = { aligned: 1, align: 1, alignat: 1, alignedat: 1, split: 1, flalign: 1, eqnarray: 1 };
+  var M_ENVS = { equation: 1, gather: 1, gathered: 1, multline: 1, array: 1, displaymath: 1, math: 1 };
+  [M_MATRIX, M_ALIGNED].forEach(function (t) { for (var k in t) if (mHas(t, k)) M_ENVS[k] = 1; });
+  var M_BB = { N: 'ℕ', Z: 'ℤ', Q: 'ℚ', R: 'ℝ', C: 'ℂ', P: 'ℙ', H: 'ℍ' };
+  var M_NOT = { '=': '≠', 'in': '∉', equiv: '≢', subset: '⊄', supset: '⊅', exists: '∄', mid: '∤', parallel: '∦' };
+  var M_LEN_RE = /^\s*\[\s*-?[\d.]+\s*[a-z]{2}\s*\]/, M_POS_RE = /^\s*\[[tbc]\]/;
+
+  function mHas(tbl, k) { return Object.prototype.hasOwnProperty.call(tbl, k); }
+  function mIsWs(c) { return c === ' ' || c === '\n' || c === '\t' || c === '\r' || c === ' ' || c === '　'; }
+  function mSkipWs(p) { while (p.i < p.s.length && mIsWs(p.s.charAt(p.i))) p.i++; }
+  function mSkipOpt(p, re) { var m = re.exec(p.s.slice(p.i, p.i + 24)); if (m) p.i += m[0].length; }
+  /* 絵文字などの 2 単位でできた文字は、まとめて 1 文字として取る。 */
+  function mChar(s, i) { var c = s.charCodeAt(i); return c >= 0xd800 && c <= 0xdbff && i + 1 < s.length ? s.substr(i, 2) : s.charAt(i); }
+  function mSymbol(name) {
+    return mHas(M_REL, name) ? M_REL[name] : mHas(M_BIN, name) ? M_BIN[name] : mHas(M_ORD, name) ? M_ORD[name] : mHas(M_BIG, name) ? M_BIG[name] : null;
+  }
+  /* 子の行に渡す設定。tight は添字の中（記号の前後を空けない）、upright は英字を斜体にしない。 */
+  function mOpt(o, x) {
+    return { mode: 'group', tight: !!o.tight || !!(x && x.tight), upright: x && x.upright != null ? !!x.upright : !!o.upright, inEnv: false };
+  }
+  /* \ の位置から命令の名前を読む（英字の並び、または記号 1 文字）。 */
+  function mName(p) {
+    var s = p.s, j = p.i + 1;
+    if (j < s.length && /[A-Za-z]/.test(s.charAt(j))) { while (j < s.length && /[A-Za-z]/.test(s.charAt(j))) j++; }
+    else if (j < s.length) j++;
+    var name = s.slice(p.i + 1, j);
+    p.i = j;
+    return name;
+  }
+  /* 空白を飛ばした先が命令なら、その名前を返す（読み進めない）。 */
+  function mPeek(p) {
+    var keep = p.i, name = null;
+    mSkipWs(p);
+    if (p.s.charAt(p.i) === '\\') name = mName(p);
+    p.i = keep;
+    return name;
+  }
+  /* { … } の中身を、解釈せずそのまま取り出す。 */
+  function mRaw(p) {
+    var s = p.s, depth = 0, j, c;
+    mSkipWs(p);
+    if (p.i >= s.length || s.charAt(p.i) === '}') return '';
+    if (s.charAt(p.i) !== '{') {
+      if (s.charAt(p.i) === '\\') { j = p.i; mName(p); return s.slice(j, p.i); }
+      c = mChar(s, p.i); p.i += c.length;
+      return c;
+    }
+    for (j = p.i; j < s.length; j++) {
+      c = s.charAt(j);
+      if (c === '\\') { j++; continue; }
+      if (c === '{') depth++;
+      else if (c === '}' && --depth === 0) break;
+    }
+    var inner = s.slice(p.i + 1, j);
+    p.i = Math.min(s.length, j + 1);
+    return inner;
+  }
+  /* \text{…} の中身。空白を残し、文字として出す。 */
+  function mText(raw) {
+    var out = '', i = 0, n = raw.length, c, q, name, sym, e;
+    while (i < n) {
+      c = raw.charAt(i);
+      if (c === '\\') {
+        q = { s: raw, i: i }; name = mName(q); i = q.i;
+        if (name === '' || mHas(M_TEXT_FONT, name)) continue;      /* 書体の指定は読み飛ばし、中身だけ出す */
+        if (name.length === 1 && !/[A-Za-z]/.test(name)) { out += mHas(M_TEXT_SP, name) ? M_TEXT_SP[name] : escapeHtml(name); continue; }
+        sym = mSymbol(name);
+        out += sym != null ? sym : escapeHtml('\\' + name);
+        continue;
+      }
+      if (c === '{' || c === '}') { i++; continue; }
+      if (c === '$' && (e = raw.indexOf('$', i + 1)) !== -1) { out += mSub(raw.slice(i + 1, e), null); i = e + 1; continue; }
+      if (c === '~') { out += ' '; i++; continue; }
+      out += escapeHtml(c); i++;
+    }
+    return out;
+  }
+  /* 引数を 1 つ読む: { … }、命令 1 つ、または 1 文字。 */
+  function mArg(p, o) {
+    var s = p.s, c, h, keep, name;
+    mSkipWs(p);
+    if (p.i >= s.length) return '';
+    c = s.charAt(p.i);
+    if (c === '{') { p.i++; h = mRow(p, o); if (s.charAt(p.i) === '}') p.i++; return h; }
+    if (c === '}' || c === '&') return '';
+    if (c === '\\') {
+      keep = p.i; name = mName(p); p.i = keep;
+      if (name === '\\' || name === 'end' || name === 'right') return '';
+      return mCommand(p, o).h;
+    }
+    c = mChar(s, p.i); p.i += c.length;
+    return /[A-Za-z]/.test(c) ? (o.upright ? c : '<i>' + c + '</i>') : c === '-' ? '−' : escapeHtml(c);
+  }
+  /* \left や \right のあとの括弧 1 つ。「.」は「括弧なし」。 */
+  function mDelim(p) {
+    var s = p.s, c, name;
+    mSkipWs(p);
+    if (p.i >= s.length) return '';
+    c = s.charAt(p.i);
+    if (c === '\\') {
+      name = mName(p);
+      if (name === '{' || name === '}') return name;
+      if (name === '|') return '‖';
+      return mHas(M_ORD, name) ? M_ORD[name] : '';
+    }
+    c = mChar(s, p.i); p.i += c.length;
+    return c === '.' ? '' : c === '<' ? '⟨' : c === '>' ? '⟩' : escapeHtml(c);
+  }
+  /* 中身が分数や複数行のとき、左右の括弧を縦に伸ばす。 */
+  function mFence(open, inner, close) {
+    var rows = (inner.match(/class="mtr/g) || []).length;
+    var k = rows > 1 ? Math.min(12, rows * 1.45) : /class="(?:mfrac|mop)/.test(inner) ? 2.2 : 0;
+    var cls = '<span class="mdelim' + (k ? ' tall" style="transform:scaleY(' + k.toFixed(2) + ')' : '') + '">';
+    var h = (open ? cls + open + '</span>' : '') + inner + (close ? cls + close + '</span>' : '');
+    return k ? '<span class="mlr">' + h + '</span>' : h;       /* 伸ばした括弧と中身のあいだで行が折り返さないようにまとめる */
+  }
+  /* \begin{…} から \end{…} まで。行は \\、列は & で区切られている。 */
+  function mEnv(p, o, envName) {
+    var s = p.s, env = envName.replace(/[\s*]/g, ''), cols = null, rows = [], cells = [], hl = false, c, keep, name, r, k, a;
+    if (env === 'array' || env === 'tabular' || env === 'subarray') { mSkipOpt(p, M_POS_RE); cols = mRaw(p).replace(/@\{[^}]*\}|[^lcr]/g, ''); }
+    else if (env === 'alignat' || env === 'alignedat') mRaw(p);
+    else mSkipOpt(p, M_POS_RE);
+    for (;;) {
+      if (!cells.length) {
+        while ((name = mPeek(p)) === 'hline' || name === 'toprule' || name === 'midrule' || name === 'bottomrule') { mSkipWs(p); mName(p); hl = true; }
+      }
+      cells.push(mRow(p, { mode: 'env', tight: !!o.tight, upright: !!o.upright, inEnv: false }));
+      c = s.charAt(p.i);
+      if (c === '&') { p.i++; continue; }
+      if (c === '\\') {
+        keep = p.i; name = mName(p);
+        if (name === 'end') { mRaw(p); break; }
+        if (name === '\\' || name === 'cr' || name === 'newline') { mSkipOpt(p, M_LEN_RE); rows.push({ cells: cells, hl: hl }); cells = []; hl = false; continue; }
+        p.i = keep;
+      }
+      break;
+    }
+    rows.push({ cells: cells, hl: hl });
+    var last = rows[rows.length - 1];
+    if (rows.length > 1 && last.cells.join('') === '') { rows.pop(); if (last.hl) rows[rows.length - 1].hlb = true; }
+    var mx = mHas(M_MATRIX, env) ? M_MATRIX[env] : null, al = mHas(M_ALIGNED, env), wide = false;
+    for (r = 0; r < rows.length; r++) if (rows[r].cells.length > 1) wide = true;
+    var h = '<span class="mtable' + (al ? ' al' : mx || cols != null ? ' mx' : '') + '">';
+    for (r = 0; r < rows.length; r++) {
+      h += '<span class="mtr' + (rows[r].hl ? ' hl' : '') + (rows[r].hlb ? ' hlb' : '') + '">';
+      for (k = 0; k < rows[r].cells.length; k++) {
+        a = env === 'eqnarray' ? 'rcl'.charAt(k % 3) : al ? (!wide || k % 2 ? 'l' : 'r') : /cases$/.test(env) ? 'l' : cols ? (cols.charAt(k) || 'c') : 'c';
+        h += '<span class="mtd ' + a + '">' + rows[r].cells[k] + '</span>';
+      }
+      h += '</span>';
+    }
+    h += '</span>';
+    return mx ? mFence(mx[0], h, mx[1]) : h;
+  }
+  /* 命令を 1 つ読む。k は種類: rel 関係の記号 / bin 演算の記号 / sign ± / ord ふつうの要素 / op 関数や ∑ / open 開く括弧 / sp 空白など前後に影響しないもの。 */
+  function mCommand(p, o) {
+    var s = p.s, name = mName(p), raw, h, a, b, keep, c;
+    if (name === '') return { h: '', k: 'sp' };
+    if (name.length === 1 && !/[A-Za-z]/.test(name)) {
+      if (name === ',') return { h: ' ', k: 'sp' };
+      if (name === '!') return { h: '', k: 'sp' };
+      if (name === ';' || name === ':' || name === '>' || mIsWs(name)) return { h: ' ', k: 'sp' };
+      if (name === '|') return { h: '‖', k: 'ord' };
+      if (name === '{') return { h: '{', k: 'open' };
+      return { h: escapeHtml(name), k: 'ord', tl: name !== '%' };      /* 「100 \%」は詰めて「100%」に、「と \$5」は空白を残す */
+    }
+    if (mHas(M_REL, name)) return { h: M_REL[name], k: 'rel' };
+    if (mHas(M_BIN, name)) return { h: M_BIN[name], k: 'bin' };
+    if (name === 'pm' || name === 'mp') return { h: name === 'pm' ? '±' : '∓', k: 'sign' };
+    if (mHas(M_ORD, name)) return { h: M_ORD[name], k: 'ord' };
+    if (mHas(M_BIG, name)) return { h: '<span class="mbig">' + M_BIG[name] + '</span>', k: 'op', lim: !/int$/.test(name) };
+    if (mHas(M_FN, name)) return { h: '<span class="mfn">' + (name === 'limsup' ? 'lim sup' : name === 'liminf' ? 'lim inf' : name) + '</span>', k: 'op', lim: M_FN[name] === 2 };
+    if (mHas(M_SPACE, name)) return { h: M_SPACE[name], k: 'sp' };
+    if (mHas(M_DROP, name)) return { h: '', k: 'sp' };
+    if (mHas(M_SKIP, name)) { if (s.charAt(p.i) === '*') p.i++; mRaw(p); return { h: M_SKIP[name], k: 'sp' }; }
+    if (mHas(M_ACCENT, name)) {
+      /* 1 文字なら、その文字の上に記号を重ねる。長い中身は、上線だけ線を引き、ほかは中身だけ出す。 */
+      raw = mRaw(p);
+      if (!/^[A-Za-z0-9]$/.test(raw)) { h = mSub(raw, o); return { h: name === 'bar' || name === 'overline' ? '<span class="mover">' + h + '</span>' : h, k: 'ord' }; }
+      h = raw + M_ACCENT[name];
+      return { h: /[A-Za-z]/.test(raw) && !o.upright ? '<i>' + h + '</i>' : h, k: 'ord' };
+    }
+    switch (name) {
+      case 'frac': case 'dfrac': case 'tfrac': case 'cfrac':
+        a = mArg(p, mOpt(o)); b = mArg(p, mOpt(o));
+        return { h: '<span class="mfrac' + (name === 'dfrac' || name === 'cfrac' ? ' big' : '') + '"><span class="num">' + a + '</span><span class="den">' + b + '</span></span>', k: 'ord' };
+      case 'binom': case 'dbinom': case 'tbinom':
+        a = mArg(p, mOpt(o)); b = mArg(p, mOpt(o));
+        return { h: mFence('(', '<span class="mfrac nobar"><span class="num">' + a + '</span><span class="den">' + b + '</span></span>', ')'), k: 'ord' };
+      case 'sqrt':
+        a = '';
+        mSkipWs(p);
+        if (s.charAt(p.i) === '[' && (keep = s.indexOf(']', p.i)) !== -1) { a = mSub(s.slice(p.i + 1, keep), { tight: true, upright: o.upright }); p.i = keep + 1; }
+        b = mArg(p, mOpt(o));
+        /* 根号は中身の高さに合わせて CSS で描く。√ の文字は、文章として取り出すときのために見えない形で残す。 */
+        return { h: '<span class="msqrt">' + (a ? '<sup class="ridx">' + a + '</sup>' : '') + '<span class="rad"><span class="g">√</span></span><span class="radicand">' + b + '</span></span>', k: 'ord' };
+      case 'text': case 'textrm': case 'textnormal': case 'textup': case 'textsf': case 'texttt': case 'mbox': case 'hbox':
+        return { h: mText(mRaw(p)), k: 'ord', tl: true };
+      case 'textbf': return { h: '<b>' + mText(mRaw(p)) + '</b>', k: 'ord', tl: true };
+      case 'textit': case 'emph': return { h: '<i>' + mText(mRaw(p)) + '</i>', k: 'ord', tl: true };
+      case 'mathrm': case 'mathsf': case 'mathtt': case 'mathup':
+        return { h: mArg(p, mOpt(o, { upright: true })), k: 'ord', tl: true };
+      case 'operatorname':
+        if (s.charAt(p.i) === '*') p.i++;
+        return { h: '<span class="mfn">' + mArg(p, mOpt(o, { upright: true })) + '</span>', k: 'op' };
+      case 'mathbf': case 'bm': case 'boldsymbol': case 'pmb':
+        return { h: '<b>' + mArg(p, mOpt(o, { upright: name === 'mathbf' ? true : o.upright })) + '</b>', k: 'ord' };
+      case 'mathit': case 'mathnormal': return { h: mArg(p, mOpt(o, { upright: false })), k: 'ord' };
+      case 'mathcal': case 'mathscr': case 'mathfrak': case 'underbrace': case 'overbrace': case 'smash': case 'overrightarrow': case 'overleftarrow':
+        return { h: mArg(p, mOpt(o)), k: 'ord' };
+      case 'mathbb':
+        raw = mRaw(p);
+        return { h: mHas(M_BB, raw) ? M_BB[raw] : '<b>' + escapeHtml(raw) + '</b>', k: 'ord' };
+      case 'underline': return { h: '<span class="munder">' + mArg(p, mOpt(o)) + '</span>', k: 'ord' };
+      case 'boxed': return { h: '<span class="mboxed">' + mArg(p, mOpt(o)) + '</span>', k: 'ord' };
+      case 'fbox': return { h: '<span class="mboxed">' + mText(mRaw(p)) + '</span>', k: 'ord', tl: true };
+      case 'cancel': case 'bcancel': case 'xcancel': case 'sout': return { h: '<span class="mcancel">' + mArg(p, mOpt(o)) + '</span>', k: 'ord' };
+      case 'phantom': case 'hphantom': return { h: '<span class="mphantom">' + mArg(p, mOpt(o)) + '</span>', k: 'sp' };
+      case 'textcolor': case 'colorbox': mRaw(p); return { h: mArg(p, mOpt(o)), k: 'ord' };
+      case 'overset': case 'stackrel':
+        a = mArg(p, mOpt(o, { tight: true })); b = mArg(p, mOpt(o, { tight: true }));
+        return { h: '<span class="mstack over"><span>' + b + '</span><span class="sm">' + a + '</span></span>', k: 'rel' };
+      case 'underset':
+        a = mArg(p, mOpt(o, { tight: true })); b = mArg(p, mOpt(o, { tight: true }));
+        return { h: '<span class="mstack"><span>' + b + '</span><span class="sm">' + a + '</span></span>', k: 'ord' };
+      case 'left':
+        a = mDelim(p);
+        h = mRow(p, { mode: 'left', tight: !!o.tight, upright: !!o.upright, inEnv: o.mode === 'env' || !!o.inEnv });
+        keep = p.i; b = '';
+        if (s.charAt(p.i) === '\\' && mName(p) === 'right') b = mDelim(p); else p.i = keep;
+        return { h: mFence(a, h, b), k: 'ord' };
+      case 'begin': return { h: mEnv(p, o, mRaw(p)), k: 'ord' };
+      case 'tag':
+        if (s.charAt(p.i) === '*') p.i++;
+        return { h: '<span class="mtag">(' + mText(mRaw(p)) + ')</span>', k: 'sp' };
+      case 'pmod': return { h: ' (mod ' + mArg(p, mOpt(o)) + ')', k: 'ord' };
+      case 'not':
+        keep = p.i; mSkipWs(p);
+        c = s.charAt(p.i);
+        if (c === '=') { p.i++; return { h: '≠', k: 'rel' }; }
+        if (c === '\\' && mHas(M_NOT, (raw = mName(p)))) return { h: M_NOT[raw], k: 'rel' };
+        p.i = keep;
+        return { h: '', k: 'sp' };
+    }
+    return { h: escapeHtml('\\' + name), k: 'ord', tl: true };
+  }
+  /* ひと並びを読む。mode: top いちばん外 / group { … } の中 / env 行と列の 1 マス / left \left … \right の中。 */
+  function mRow(p, o) {
+    var s = p.s, n = s.length, out = '', prev = '', tl = false, ws = false, lastAt = 0, lastLim = false;
+    var stopEnv = o.mode === 'env' || !!o.inEnv, c, keep, name, a, sup, sub, isSup, j, run;
+    function add(h, kind, textLike, lim) { lastAt = out.length; out += h; prev = kind; tl = !!textLike; ws = false; lastLim = !!lim; }
+    /* ふつうの要素。関数名のあとは少し空け、「100 km」のように文字どうしを空白で区切ってあればその空白を残す。 */
+    function atom(h, textLike) { add((prev === 'op' ? ' ' : textLike && ws && tl ? ' ' : '') + h, 'ord', textLike); }
+    function op(sym, kind) { add(o.tight ? sym : ' ' + sym + ' ', kind); }
+    /* + と − は、前に数や文字があれば 2 つをつなぐ記号、なければ符号。 */
+    function sign(sym) { add(prev === 'ord' && !o.tight ? ' ' + sym + ' ' : sym, 'bin'); }
+    while (p.i < n) {
+      c = s.charAt(p.i);
+      if (mIsWs(c)) { ws = true; p.i++; continue; }
+      if (c === '}') { if (o.mode !== 'top') break; p.i++; continue; }
+      if (c === '&') { if (stopEnv) break; p.i++; continue; }
+      if (c === '{') {
+        p.i++;
+        a = mRow(p, mOpt(o));
+        if (s.charAt(p.i) === '}') p.i++;
+        atom(a, false);
+        continue;
+      }
+      if (c === '^' || c === '_') {
+        sup = ''; sub = '';
+        for (;;) {
+          isSup = s.charAt(p.i) === '^'; p.i++;
+          a = mArg(p, mOpt(o, { tight: true }));
+          if (isSup) sup += a; else sub += a;
+          keep = p.i; mSkipWs(p);
+          if (p.i < n && (s.charAt(p.i) === '^' || s.charAt(p.i) === '_')) continue;
+          p.i = keep; break;
+        }
+        if (lastLim && p.display && !o.tight) {
+          a = out.slice(lastAt); out = out.slice(0, lastAt);
+          add('<span class="mop">' + (sup ? '<span class="lim">' + sup + '</span>' : '') + '<span>' + a + '</span>' + (sub ? '<span class="lim">' + sub + '</span>' : '') + '</span>', 'op');
+        } else {
+          a = prev === 'op' ? 'op' : 'ord';
+          if (sup === '∘' && !sub) add('°', a);
+          else if (sup && sub) add('<span class="msupsub"><sup>' + sup + '</sup><sub>' + sub + '</sub></span>', a);
+          else if (sup) add('<sup>' + sup + '</sup>', a);
+          else if (sub) add('<sub>' + sub + '</sub>', a);
+        }
+        continue;
+      }
+      if (c === '\\') {
+        keep = p.i; name = mName(p);
+        if (name === '\\' || name === 'cr' || name === 'newline') {
+          if (stopEnv) { p.i = keep; break; }
+          mSkipOpt(p, M_LEN_RE);
+          add(p.display && !o.tight ? '<br>' : ' ', '');
+          continue;
+        }
+        if (name === 'end') {
+          if (stopEnv) { p.i = keep; break; }
+          mRaw(p); continue;
+        }
+        if (name === 'right') {
+          if (o.mode === 'left' || o.mode === 'env') { p.i = keep; break; }
+          continue;
+        }
+        p.i = keep;
+        a = mCommand(p, o);
+        if (a.k === 'sp') out += a.h;
+        else if (a.k === 'bin' || a.k === 'rel') op(a.h, a.k);
+        else if (a.k === 'sign') sign(a.h);
+        else if (a.k === 'op') { if (prev === 'ord') out += ' '; add(a.h, 'op', false, a.lim); }
+        else if (a.k === 'open' || name === 'left') add(a.h, a.k);
+        else atom(a.h, a.tl);
+        continue;
+      }
+      p.i++;
+      switch (c) {
+        case '+': sign('+'); break;
+        case '-': sign('−'); break;
+        case '*': op('∗', 'bin'); break;
+        case '=': op('=', 'rel'); break;
+        case '<': op('&lt;', 'rel'); break;
+        case '>': op('&gt;', 'rel'); break;
+        case ':': if (s.charAt(p.i) === '=') { p.i++; op(':=', 'rel'); } else op(':', 'rel'); break;
+        case '(': case '[': add(c, 'open'); break;
+        case ')': case ']': add(c, 'ord'); break;
+        case '|': add('|', prev === 'ord' ? 'ord' : 'open'); break;
+        case ',': case ';': add(c + (mIsWs(s.charAt(p.i)) ? ' ' : ''), 'punct'); break;
+        case '/': add('/', 'bin'); break;
+        case "'": add('′', 'ord'); break;
+        case '~': out += ' '; break;
+        default:
+          if (/[A-Za-z]/.test(c)) {
+            j = p.i; while (j < n && /[A-Za-z]/.test(s.charAt(j))) j++;
+            run = c + s.slice(p.i, j); p.i = j;
+            atom(o.upright ? run : '<i>' + run + '</i>', true);
+          } else {
+            c = mChar(s, p.i - 1); p.i += c.length - 1;
+            atom(escapeHtml(c), true);
+          }
+      }
+    }
+    return out;
+  }
+  /* 文字列の一部分（根号の指数など）を数式として組み立てる。 */
+  function mSub(str, o) {
+    return mRow({ s: String(str), i: 0, display: false }, { mode: 'top', tight: !!(o && o.tight), upright: !!(o && o.upright), inEnv: false });
+  }
+  function mathHtml(tex, display) {
+    var h;
+    try { h = mRow({ s: String(tex).replace(/^\s+|\s+$/g, ''), i: 0, display: !!display }, { mode: 'top', tight: false, upright: false, inEnv: false }).replace(/^ +| +$/g, ''); }
+    catch (e) { h = escapeHtml(tex); }      /* 入れ子が深すぎるなどで組み立てられないときは、元の文字のまま出す */
+    return '<span class="math' + (display ? ' math-display' : '') + '">' + h + '</span>';
+  }
+
+  /* ---------- 本文から数式の部分を見つける ----------
+   * 数式は Markdown として読む前に抜き出して目印（ 番号 ）に置き換え、最後に組み立てた HTML と差し替える。
+   * 先に抜き出すので、数式の中の * や | や改行が、強調・表・箇条書きとして読まれることがない。 */
+  var M_MARK_OPEN = '', M_MARK_CLOSE = '';
+  var CODE_SPAN_RE = /^(`+)([^\n]*?[^`\n])\1(?!`)/;
+  /* from から先で、閉じる記号（$$ や \] など）の位置を探す。空行をまたぐもの・中身が空のものは数式にしない。 */
+  function mathEnd(text, from, closer) {
+    var j = from, n = text.length, c;
+    while (j < n) {
+      c = text.charAt(j);
+      if (c === '\n' && /^[ \t]*(?:\n|$)/.test(text.slice(j + 1, j + 80))) return -1;
+      if (text.substr(j, closer.length) === closer) return /\S/.test(text.slice(from, j)) ? j : -1;
+      j += c === '\\' ? 2 : 1;
+    }
+    return -1;
+  }
+  /* i の位置の $ が「$…$」の始まりなら、終わりの $ の位置を返す。金額の $ を数式と取り違えないための条件:
+   * 始まりの $ は直後が空白でない。直前が数字のとき（「100$」は金額かもしれない）は、直後が英字か \ のときだけ
+   * 始まりとみなす（「2$x$」のように係数だけ外に書かれることがある）。次に出てくる $ は直前が空白や / でなく、
+   * 直後が数字でない。あいだは 1 行のうちで、括弧の開きと閉じがつり合っている。
+   * あいだに日本語があるのに演算の記号も命令もないもの（「$500の商品をUS$で」）は、文章とみなす。 */
+  function inlineMathEnd(text, i) {
+    var next = text.charAt(i + 1), j = i + 1, n = text.length, depth = 0, c;
+    if (!next || mIsWs(next) || (/[0-9]/.test(text.charAt(i - 1)) && !/[A-Za-z\\]/.test(next))) return -1;
+    while (j < n) {
+      c = text.charAt(j);
+      if (c === '\n' || c === '`') return -1;
+      if (c === '\\') { j += 2; continue; }
+      if (c === '$') {
+        c = text.charAt(j - 1);
+        if (depth || mIsWs(c) || c === '/' || /[0-9]/.test(text.charAt(j + 1))) return -1;
+        c = text.slice(i + 1, j);
+        return /[぀-ヿ㐀-鿿]/.test(c) && !/[\\=+\-−×÷^_{<>]/.test(c) ? -1 : j;
+      }
+      if ('([（「『【'.indexOf(c) !== -1) depth++;
+      else if (')]）」』】'.indexOf(c) !== -1 && --depth < 0) return -1;
+      j++;
+    }
+    return -1;
+  }
+  /* 回答が届いている途中で $$ や \[ がまだ閉じていないとき、そこから末尾までを数式として先に組み立てる。
+   * 式が書かれていくあいだ、LaTeX の記号がむき出しで見えるのを避けるため。空行があれば数式とはみなさない。 */
+  function mathTail(text, from) {
+    var rest = text.slice(from);
+    return /\n[ \t]*\n/.test(rest) || !/[^\s$\\]/.test(rest) ? null : rest.replace(/\$$/, '');
+  }
+  function scanMath(text, store, partial) {
+    var out = '', i = 0, last = 0, n = text.length, c, e, m, lineEnd, tail;
+    function put(end, tex, display) {
+      out += text.slice(last, i) + M_MARK_OPEN + store.length + M_MARK_CLOSE;
+      store.push({ h: mathHtml(tex, display), d: display });
+      i = last = end;
+    }
+    while (i < n) {
+      c = text.charAt(i);
+      if (c === '`') {
+        /* コードの中は数式として読まない（renderInline と同じ決まりで、その行のうちに閉じるものだけ）。 */
+        lineEnd = text.indexOf('\n', i);
+        m = CODE_SPAN_RE.exec(text.slice(i, lineEnd === -1 ? n : lineEnd));
+        i += m ? m[0].length : 1;
+        continue;
+      }
+      if (c === '\\') {
+        c = text.charAt(i + 1);
+        if (c === '(' && (e = mathEnd(text, i + 2, '\\)')) !== -1) { put(e + 2, text.slice(i + 2, e), false); continue; }
+        if (c === '[' && (e = mathEnd(text, i + 2, '\\]')) !== -1) { put(e + 2, text.slice(i + 2, e), true); continue; }
+        if (c === '[' && partial && (tail = mathTail(text, i + 2)) != null) { put(n, tail, true); continue; }
+        /* $$ で囲まずに \begin{aligned} … \end{aligned} だけを書いてくることもある。 */
+        if (c === 'b' && (m = /^\\begin\{([A-Za-z]+\*?)\}/.exec(text.slice(i, i + 32))) && mHas(M_ENVS, m[1].replace('*', ''))) {
+          e = mathEnd(text, i + m[0].length, '\\end{' + m[1] + '}');
+          if (e !== -1) { e += m[1].length + 6; put(e, text.slice(i, e), true); continue; }
+        }
+        i += 2;
+        continue;
+      }
+      if (c === '$') {
+        if (text.charAt(i + 1) === '$') {
+          if ((e = mathEnd(text, i + 2, '$$')) !== -1) { put(e + 2, text.slice(i + 2, e), true); continue; }
+          if (partial && (tail = mathTail(text, i + 2)) != null) { put(n, tail, true); continue; }
+          i += 2;
+          continue;
+        }
+        if ((e = inlineMathEnd(text, i)) !== -1) { put(e + 1, text.slice(i + 1, e), false); continue; }
+      }
+      i++;
+    }
+    return out + text.slice(last);
+  }
+  /* コードブロックの外だけを対象に、数式を目印に置き換える。 */
+  function protectMath(text, store, partial) {
+    var lines = text.split('\n'), out = [], buf = [], i = 0, m, close;
+    function flush(atEnd) { if (buf.length) { out.push(scanMath(buf.join('\n'), store, partial && atEnd)); buf = []; } }
+    while (i < lines.length) {
+      if ((m = FENCE_RE.exec(lines[i]))) {
+        flush(false);
+        close = fenceCloser(m);
+        out.push(lines[i]); i++;
+        while (i < lines.length && !close.test(lines[i])) { out.push(lines[i]); i++; }
+        if (i < lines.length) { out.push(lines[i]); i++; }
+        continue;
+      }
+      buf.push(lines[i]); i++;
+    }
+    flush(true);
+    return out.join('\n');
+  }
+
+  /* partial: 回答がまだ届いている途中（末尾の書きかけの数式も数式として表示する）。
+   * lineSep: 1 行で大きく書く数式の前後に入れる文字（文章として取り出すときに行を分けるため）。 */
+  function renderHtml(src, partial, lineSep) {
+    var text = String(src == null ? '' : src).replace(/\r\n?/g, '\n').replace(/[]/g, ''), store = [];
+    if (/[$\\]/.test(text)) text = protectMath(text, store, partial);
+    var html = renderBlocks(text.split('\n'), 0);
+    if (!store.length) return html;
+    /* 1 行で大きく書く数式はそれだけで 1 段になるので、前後の改行は取り除く。 */
+    return html.replace(/(<br>)?(\d+)(<br>)?/g, function (all, before, k, after) {
+      var it = store[+k];
+      return !it ? '' : it.d ? lineSep + it.h + lineSep : (before || '') + it.h + (after || '');
+    });
+  }
+  function renderMarkdown(src, partial) { return renderHtml(src, !!partial, ''); }
+  /* 履歴の一覧に出す 1 行。Markdown や数式の記号を取り除いた、最初の文章の行。 */
+  function snippetText(src, max) {
+    var lines = renderHtml(src, false, '\n')
+      .replace(/<br>|<\/?(?:p|li|ul|ol|h[1-6]|pre|blockquote|div|table|thead|tbody|tr|hr)\b[^>]*>|<span class="mtr[^"]*">/g, '\n')
+      .replace(/<\/t[dh]>|<span class="mtd [lcr]">/g, ' ')
+      .replace(/<span class="den">/g, '/').replace(/<sup>/g, '^')
+      .replace(/<[^>]*>/g, '')
+      .replace(/&(?:#(\d+)|(amp|lt|gt|quot));/g, function (all, code, name) { return code ? String.fromCharCode(+code) : { amp: '&', lt: '<', gt: '>', quot: '"' }[name]; })
+      .split('\n');
+    for (var i = 0; i < lines.length; i++) {
+      var s = lines[i].replace(/\s+/g, ' ').trim();
+      if (s) return s.slice(0, max || 140);
+    }
+    return '';
   }
 
   /* ---------- SSE（ストリーミング応答）の読み取り ---------- */
@@ -946,7 +1537,7 @@ dialog::backdrop { background: rgba(0, 0, 0, .5); }
   }
 
   root.KiritoriCore = {
-    escapeHtml: escapeHtml, clamp: clamp, renderMarkdown: renderMarkdown, createSSEParser: createSSEParser,
+    escapeHtml: escapeHtml, clamp: clamp, renderMarkdown: renderMarkdown, mathHtml: mathHtml, snippetText: snippetText, createSSEParser: createSSEParser,
     sanitizeRegion: sanitizeRegion, regionToPixels: regionToPixels, fitScale: fitScale, imagePatches: imagePatches, rectFromPoints: rectFromPoints, moveRegion: moveRegion, resizeRegion: resizeRegion,
     BUILTIN_MODELS: BUILTIN_MODELS, CLAUDE_EFFORTS: CLAUDE_EFFORTS, GEMINI_EFFORTS: GEMINI_EFFORTS,
     claudeModelFromApi: claudeModelFromApi, geminiModelsFromApi: geminiModelsFromApi, effectiveEffort: effectiveEffort,
@@ -1514,9 +2105,11 @@ dialog::backdrop { background: rgba(0, 0, 0, .5); }
     var cur = state.cur;
     if (!cur) return;
     var st = cur.acc.state;
-    els.curAnswer.innerHTML = C.renderMarkdown(st.text);
+    /* 届いている途中と、途中で止まった回答（中止・エラー）は、末尾の書きかけの数式も数式として表示する。 */
+    var partial = !cur.ended || cur.aborted || cur.error;
+    els.curAnswer.innerHTML = C.renderMarkdown(st.text, partial);
     els.curThinking.hidden = !st.thinking;
-    if (st.thinking && (els.curThinking.open || cur.ended)) els.curThinkingBody.innerHTML = C.renderMarkdown(st.thinking);
+    if (st.thinking && (els.curThinking.open || cur.ended)) els.curThinkingBody.innerHTML = C.renderMarkdown(st.thinking, partial);
     els.curCopy.hidden = !st.text;
     renderStatus();
   }
@@ -1653,14 +2246,7 @@ dialog::backdrop { background: rgba(0, 0, 0, .5); }
     };
   })();
 
-  function snippetOf(text) {
-    var lines = String(text || '').split('\n');
-    for (var i = 0; i < lines.length; i++) {
-      var s = lines[i].replace(/^[\s#>*+\-|`]+/, '').replace(/[*`_~]/g, '').trim();
-      if (s) return s.slice(0, 140);
-    }
-    return '（回答の文章なし）';
-  }
+  function snippetOf(text) { return C.snippetText(text, 140) || '（回答の文章なし）'; }
   function showImage(url) {
     if (state.bigUrl) { URL.revokeObjectURL(state.bigUrl); state.bigUrl = null; }
     els.bigImage.src = url;

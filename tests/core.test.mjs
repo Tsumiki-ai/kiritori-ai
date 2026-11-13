@@ -113,6 +113,165 @@ t('大きな入力でも固まらない', () => {
   assert.ok(Date.now() - t0 < 3000, 'took ' + (Date.now() - t0) + 'ms');
 });
 
+// ---------- 数式（LaTeX 記法） ----------
+const R = String.raw;
+const plain = (h) => h.replace(/<[^>]*>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&amp;/g, '&');
+const count = (h, re) => (h.match(re) || []).length;
+// 出てくるタグと属性が決めたものだけで、タグの外に < > が残っていないこと
+const MATH_TAGS = new Set(['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'br', 'strong', 'em', 'del', 'code', 'pre', 'a', 'ul', 'ol', 'li', 'blockquote', 'div', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'hr', 'sub', 'sup', 'span', 'i', 'b']);
+const ATTRS_RE = /^(?:\s(?:class="[a-z0-9 -]+"|style="(?:text-align:(?:left|right|center)|transform:scaleY\(\d+\.\d\d\))"|href="https?:\/\/[^"<>]*"|target="_blank"|rel="noopener noreferrer"|start="\d+"))*$/;
+function assertSafe(h, src) {
+  const where = ' ← ' + JSON.stringify(src);
+  const rest = h.replace(/<\/?([a-zA-Z0-9]+)((?:\s[a-z-]+="[^"<>]*")*)>/g, (all, tag, attrs) => {
+    assert.ok(MATH_TAGS.has(tag), '決めていないタグ: ' + all + where);
+    assert.ok(ATTRS_RE.test(attrs), '決めていない属性: ' + all + where);
+    return '';
+  });
+  assert.ok(!/[<>]/.test(rest), 'タグの外に < > が残っている: ' + h + where);
+}
+
+t('数式: $…$ と $$…$$ は記号を残さず数式として出る', () => {
+  const h = md(R`定価を $x$ 円とすると $x \times (1 - 0.15) = 1020$ なので
+$$x = 1020 \div 0.85 = 1200\text{円}$$`);
+  assert.ok(!h.includes('$') && !h.includes('\\'), h);
+  assert.equal(plain(h), '定価を x 円とすると x × (1 − 0.15) = 1020 なのでx = 1020 ÷ 0.85 = 1200円');
+  assert.ok(h.includes('<span class="math"><i>x</i></span>') && h.includes('なので<span class="math math-display"><i>x</i> = 1020'), h);
+});
+t('数式: 分数・添字・根号・文字・記号', () => {
+  assert.equal(C.mathHtml(R`\frac{90}{210} \times 100`), '<span class="math"><span class="mfrac"><span class="num">90</span><span class="den">210</span></span> × 100</span>');
+  assert.equal(C.mathHtml(R`_{10}\mathrm{C}_2 = 45\text{（通り）}`), '<span class="math"><sub>10</sub>C<sub>2</sub> = 45（通り）</span>');
+  assert.equal(C.mathHtml(R`x_i^2 + e^{-rt}`), '<span class="math"><i>x</i><span class="msupsub"><sup>2</sup><sub><i>i</i></sub></span> + <i>e</i><sup>−<i>rt</i></sup></span>');
+  assert.equal(plain(C.mathHtml(R`\sqrt{2} \fallingdotseq 1.41`)), '√2 ≒ 1.41');
+  assert.equal(plain(C.mathHtml(R`42.857\dots\%`)), '42.857…%');
+  assert.equal(plain(C.mathHtml(R`60\text{ km/時} + 40\text{ km/時}`)), '60 km/時 + 40 km/時');
+  assert.equal(plain(C.mathHtml(R`25人 \times 600円 = 15,000円`)), '25人 × 600円 = 15,000円');
+  assert.equal(plain(C.mathHtml(R`1{,}200 + (1, 2)`)), '1,200 + (1, 2)');
+  assert.equal(plain(C.mathHtml(R`-3 + (-2) = -5`)), '−3 + (−2) = −5');
+  assert.equal(plain(C.mathHtml(R`a \leq b \neq c \Rightarrow d`)), 'a ≤ b ≠ c ⇒ d');
+  assert.equal(plain(C.mathHtml(R`90^\circ`)), '90°');
+  assert.equal(plain(C.mathHtml(R`100 km \div 2\,\mathrm{h}`)), '100 km ÷ 2 h');
+  assert.equal(plain(C.mathHtml(R`\log_2 8 = 3`)), 'log2 8 = 3');
+  assert.equal(plain(C.mathHtml(R`|-3| = 3`)), '|−3| = 3');
+  assert.equal(plain(C.mathHtml(R`50% と \$5`)), '50% と $5');
+});
+t('数式: 行をそろえる書き方（aligned・array・cases）', () => {
+  const h = C.mathHtml(R`\begin{aligned} a &= b + c \\ &= 5 \end{aligned}`, true);
+  assert.equal(count(h, /class="mtr"/g), 2, h);
+  assert.ok(h.includes('<span class="mtd r"><i>a</i></span><span class="mtd l"> = <i>b</i> + <i>c</i></span>'), h);
+  const arr = C.mathHtml(R`\begin{array}{lr} \text{売上高} & 5,000 \\ \text{変動費} & -3,200 \\ \hline \text{貢献利益} & 1,800 \end{array}`, true);
+  assert.ok(arr.includes('<span class="mtr hl"><span class="mtd l">貢献利益</span><span class="mtd r">1,800</span></span>'), arr);
+  assert.ok(arr.includes('<span class="mtd r">−3,200</span>'), arr);
+  const cases = C.mathHtml(R`f(x) = \begin{cases} x^2 & (x \geq 0) \\ -x & (x < 0) \end{cases}`);
+  assert.ok(cases.includes('<span class="mlr"><span class="mdelim tall" style="transform:scaleY(2.90)">{</span><span class="mtable mx">'), cases);
+  assert.ok(cases.includes('(<i>x</i> &lt; 0)'), cases);
+});
+t('数式: 知らない命令は消さずに文字で出す・閉じ忘れでも崩れない', () => {
+  assert.equal(plain(C.mathHtml(R`\foo{x} + 1`)), R`\foox + 1`);
+  assert.equal(plain(C.mathHtml(R`\frac{1}{2`)), '12');
+  assert.equal(plain(C.mathHtml(R`\left( \frac{a}{b}`)), '(ab');
+  assert.equal(plain(C.mathHtml(R`a } b \right) \end{x} & c \\ d`)), 'a b)c d');
+  assert.equal(plain(C.mathHtml(R`\begin{aligned} x &= 1 \\`)), 'x = 1');
+  assert.equal(C.mathHtml('{'.repeat(200000) + 'x'), '<span class="math">' + '{'.repeat(200000) + 'x</span>');   // 入れ子が深すぎるときは元の文字のまま
+  for (const k of ['constructor', 'toString', 'hasOwnProperty', 'valueOf']) assert.equal(plain(C.mathHtml('\\' + k)), '\\' + k);
+  for (const k of ['__proto__', 'constructor']) assert.equal(plain(C.mathHtml('\\begin{' + k + '} a & b \\end{' + k + '}')), 'ab');
+});
+t('数式: 金額の $ は数式にしない', () => {
+  for (const s of ['売掛金 $1,000 × 決算日レート 105円/$ = 105,000円', 'A社は $100、B社は $200 です', '$100と$200の差', '商品Aは100$、商品Bは200$です',
+    '価格は$100($90+$10)です', '売上 $100 (単位: US$)', '環境変数 $HOME と $PATH', '$ 5 と $ 10', '$500の商品をUS$で購入、1$=110円、支払額は 500$', '売掛金$1,000（1$=100円）',
+    '為替差損益 = $1,000 × (105円/$ − 110円/$)', '取得原価は$500、時価は$450なので評価損は$50']) {
+    assert.ok(!md(s).includes('class="math'), s + ' → ' + md(s));
+    assert.equal(plain(md(s)), s, s);
+  }
+  assert.equal(md(R`\$100 と \$200`), '<p>&#36;100 と &#36;200</p>');
+});
+t('数式: 係数だけ外に書かれた「2$x$」も数式になる', () => {
+  assert.equal(plain(md('48 ＋ 2$x$ ＝ 72')), '48 ＋ 2x ＝ 72');
+  assert.equal(plain(md('1.3$x$ = 1105 と $a$$b$')), '1.3x = 1105 と ab');
+});
+t('数式: コードの中は数式にしない', () => {
+  assert.equal(md('`$x$` と $y$'), '<p><code>$x$</code> と <span class="math"><i>y</i></span></p>');
+  assert.equal(md('```\n$$a$$\n```\n$b$'), '<pre><code>$$a$$</code></pre>\n<p><span class="math"><i>b</i></span></p>');
+});
+t('数式: 複数行の $$…$$ は箇条書きや表の中でも 1 つの数式', () => {
+  const h = md(R`1. 手順
+   $$
+   \begin{aligned}
+   - 3x &= 6 \\
+   x &= -2
+   \end{aligned}
+   $$
+2. 次`);
+  assert.equal(count(h, /<li>/g), 2, h);
+  assert.equal(count(h, /class="mtr"/g), 2, h);
+  assert.ok(!h.includes('<br>') && !h.includes('$'), h);
+  const tb = md(R`| 式 | 値 |
+|---|---|
+| $|x| + 1$ | $a \mid b$ |`);
+  assert.equal(count(tb, /<td>/g), 2, tb);
+  assert.equal(md('$$a$$\n$$b$$\n続き'), '<p><span class="math math-display"><i>a</i></span><span class="math math-display"><i>b</i></span>続き</p>');
+  assert.equal(md('$$a\n\nb$$'), '<p>$$a</p>\n<p>b$$</p>');     // 空行をまたぐものは数式にしない
+});
+t('数式: \\( \\) と \\[ \\]、$$ で囲まない \\begin{…}', () => {
+  assert.equal(plain(md(R`面積は \(S = ab\) です`)), '面積は S = ab です');
+  assert.ok(md(R`\[ x = 1 \]`).includes('<span class="math math-display"><i>x</i> = 1</span>'));
+  const h = md(R`\begin{align}
+a &= 1 \\
+b &= 2
+\end{align}`);
+  assert.equal(count(h, /class="mtr"/g), 2, h);
+  assert.equal(md(R`f\(x`), '<p>f&#40;x</p>');
+});
+t('数式: 回答が届いている途中の書きかけも数式として出す', () => {
+  const src = R`答えは $$x = \frac{1}{2`;
+  assert.equal(md(src), '<p>' + src + '</p>');                       // 届き終わっても閉じていなければ、そのまま出す
+  const h = C.renderMarkdown(src, true);
+  assert.ok(!h.includes('$') && h.includes('<span class="num">1</span><span class="den">2</span>'), h);
+  assert.equal(plain(C.renderMarkdown(R`合計 $$1 + 1 = 2$`, true)), '合計 1 + 1 = 2');
+  assert.equal(plain(C.renderMarkdown(R`合計 \[1 + 1 = 2` + '\\', true)), '合計 1 + 1 = 2');
+  assert.equal(C.renderMarkdown('金額は $$', true), '<p>金額は $$</p>');
+  assert.equal(C.renderMarkdown('定価を $x', true), '<p>定価を $x</p>');
+  assert.equal(C.renderMarkdown('$$a\n\n次の段落', true), '<p>$$a</p>\n<p>次の段落</p>');
+});
+t('数式: 中に HTML を書かれても文字として出る', () => {
+  const src = R`$<img src=x onerror=alert(1)>$ と $$\text{<script>alert(1)</script>}$$ と $\unknown{"onmouseover="x}$ と \[<svg/onload=1>\] と $\left<a href="x">\right>$ と [$a$](https://e.f/$b$)`;
+  const h = md(src);
+  assertSafe(h, src);
+  assert.ok(count(h, /class="math/g) >= 5 && plain(h).includes('<script>alert(1)</script>'), h);
+});
+t('数式: でたらめな入力でも落ちず、決めたタグしか出ない', () => {
+  const pieces = ['$', '$', '$$', '\\', '{', '}', '^', '_', '&', '\\\\', '\\frac', '\\sqrt', '\\sqrt[', '\\left', '\\right', '\\begin{aligned}', '\\end{aligned}', '\\begin{cases}', '\\end{cases}',
+    '\\begin{array}{l|r}', '\\end{array}', '\\text{', '\\hline', '\\(', '\\)', '\\[', '\\]', '(', ')', '[', ']', '|', '<', '>', '"', "'", '&amp;', 'x', '1', '円', ' ', ' ', '\n', '\n\n', '`', '*', '**', '-', '+', '=', ',',
+    '.', '%', '\\sum', '\\limits', '\\not', '\\mathrm', '\\bar', '\\boxed', '\\tag', '<script>', '', '', '😀', '\\binom', '\\overset', '\\color{red}', '~', '#', '\\%', '\\$', '$1,000', '/$', '- ', '1. ', '> ', '```', '](https://a.b/'];
+  let seed = 20261113;
+  const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+  for (let k = 0; k < 4000; k++) {
+    let s = '';
+    for (let i = 1 + Math.floor(rnd() * 40); i > 0; i--) s += pieces[Math.floor(rnd() * pieces.length)];
+    for (const partial of [false, true]) {
+      let h;
+      try { h = C.renderMarkdown(s, partial); } catch (e) { assert.fail('例外: ' + JSON.stringify(s) + ' → ' + (e && e.message)); }
+      assertSafe(h, s);
+      assert.ok(!/[]/.test(h), '数式の目印が残った ← ' + JSON.stringify(s));
+    }
+    assert.equal(typeof C.snippetText(s, 140), 'string');
+  }
+});
+t('数式: 大きな入力でも固まらない', () => {
+  const big = (R`$x_1 + \frac{a}{b}$ と $$\sum_{i=1}^{n} x_i$$ ` + '\n').repeat(3000) + '$'.repeat(3000) + '\\('.repeat(2000) + '$$' + 'x '.repeat(20000);
+  const t0 = Date.now(); md(big); C.renderMarkdown(big, true);
+  assert.ok(Date.now() - t0 < 3000, 'took ' + (Date.now() - t0) + 'ms');
+});
+t('履歴の 1 行: Markdown と数式の記号を除いた、最初の文章の行', () => {
+  assert.equal(C.snippetText('## 結論\n答えは **42** です'), '結論');
+  assert.equal(C.snippetText('答えは **42** です。\n\n| 項目 | 金額 |'), '答えは 42 です。');
+  assert.equal(C.snippetText(R`定価は $x = \frac{6}{5} \times 1000$ 円、$a^2$ です`), '定価は x = 6/5 × 1000 円、a^2 です');
+  assert.equal(C.snippetText('$$\n1 + 1 = 2\n$$\n以上'), '1 + 1 = 2');
+  assert.equal(C.snippetText('| 項目 | 金額 |\n|---|---|\n| 現金 | 1,000 |'), '項目 金額');
+  assert.equal(C.snippetText('a < b & c > "d" と a_b'), 'a < b & c > "d" と a_b');
+  assert.equal(C.snippetText('\n\n'), '');
+  assert.equal(C.snippetText('あ'.repeat(300), 140).length, 140);
+});
+
 // ---------- SSE ----------
 function sseAll(text, sizes) {
   const got = [];

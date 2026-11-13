@@ -80,6 +80,8 @@ const STUB = `(() => {
     s += ev('step.start', { index: 1, step: { type: 'model_output' }, event_type: 'step.start' }, nl);
     s += ev('step.delta', { index: 1, delta: { text: 'Gemini の回答です。\\n\\n1. 手順A\\n', type: 'text' }, event_type: 'step.delta' }, nl);
     s += ev('step.delta', { index: 1, delta: { text: '2. 手順B', type: 'text' }, event_type: 'step.delta' }, nl);
+    // 計算の過程でよくある、LaTeX 記法の数式（文中の $…$ と、1 行で書く $$…$$）
+    s += ev('step.delta', { index: 1, delta: { text: '\\n\\n割合は $\\\\frac{90}{210} \\\\times 100 \\\\fallingdotseq 42.9\\\\%$ です。\\n$$x = 1020 \\\\div 0.85 = 1200\\\\text{円}$$', type: 'text' }, event_type: 'step.delta' }, nl);
     s += ev('step.stop', { index: 1, event_type: 'step.stop' }, nl);
     s += ev('interaction.completed', { interaction: { id: 'v1_x', status: 'completed', usage: { total_tokens: 346, total_input_tokens: 1211, total_output_tokens: 90, total_thought_tokens: 245 }, object: 'interaction', model }, event_type: 'interaction.completed' }, nl);
     s += 'event: done' + nl + 'data: [DONE]' + nl + nl;
@@ -325,6 +327,14 @@ try {
   await waitFor(`document.getElementById('curTitle').textContent === 'Gemini 4 Carbon' && document.getElementById('curStatus').textContent.startsWith('完了')`, 'Gemini の回答完了（Ctrl+Enter）');
   const gans = await ev(`document.getElementById('curAnswer').innerHTML`);
   check('F Gemini の回答表示', gans.includes('<p>Gemini の回答です。</p>') && gans.includes('<ol><li>手順A</li><li>手順B</li></ol>'), gans);
+  check('F 数式は $ や \\ を残さず、分数は上下に重ねて表示される', await ev(`(() => {
+    const a = document.getElementById('curAnswer'), f = a.querySelector('.mfrac'), d = a.querySelector('.math-display');
+    if (!f || !d) return false;
+    const num = f.querySelector('.num').getBoundingClientRect(), den = f.querySelector('.den').getBoundingClientRect();
+    return !a.textContent.includes('$') && !a.textContent.includes('\\\\') && a.textContent.includes('× 100 ≒ 42.9%') && d.textContent === 'x = 1020 ÷ 0.85 = 1200円'
+      && den.top >= num.bottom - 1 && Math.abs((num.left + num.right) - (den.left + den.right)) < 2 && getComputedStyle(d).display === 'block';
+  })()`), await text('curAnswer'));
+  await shot('04c-math-light');
   check('F Gemini の状態表示', /入力 1,211・出力 90 トークン（別に思考 245）$/.test(await text('curStatus')), await text('curStatus'));
   const greq = await lastReq('https://generativelanguage.googleapis.com/v1beta/interactions');
   const gb = greq.body;
